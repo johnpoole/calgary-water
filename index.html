@@ -46,8 +46,30 @@
         position: relative;
       }
 
+      #tiles {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      #tiles .tile-layer {
+        position: absolute;
+        inset: 0;
+        transform-origin: 0 0;
+        will-change: transform;
+      }
+
+      #tiles img {
+        position: absolute;
+        image-rendering: auto;
+      }
+
       svg {
         display: block;
+        position: relative;
+        z-index: 1;
       }
 
       .feature {
@@ -77,6 +99,7 @@
         line-height: 1.35;
         max-width: min(360px, 70vw);
         white-space: pre-wrap;
+        z-index: 3;
       }
 
       .inspector {
@@ -90,6 +113,7 @@
         border: 1px solid #e5e7eb;
         border-radius: 8px;
         padding: 10px;
+        z-index: 3;
       }
 
       .legend {
@@ -103,6 +127,7 @@
         border: 1px solid #e5e7eb;
         border-radius: 8px;
         padding: 10px;
+        z-index: 3;
       }
 
       .legend h2 {
@@ -127,7 +152,7 @@
 
       .legend li {
         display: grid;
-        grid-template-columns: 44px 1fr;
+        grid-template-columns: auto 1fr;
         align-items: center;
         gap: 8px;
         font-size: 11px;
@@ -135,7 +160,19 @@
         padding: 2px 0;
       }
 
+      .legend .key {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        width: 72px;
+      }
+
+      .legend input[type="checkbox"] {
+        margin: 0;
+      }
+
       .legend .swatch {
+        width: 44px;
         height: 0;
         border-top-style: solid;
         border-top-color: #111827;
@@ -181,9 +218,12 @@
       </header>
       <div id="map">
         <div class="loading" id="status">Loading GeoJSON…</div>
+        <div id="tiles" aria-hidden="true"></div>
         <div class="tooltip" id="tooltip" aria-hidden="true"></div>
         <div class="legend" id="legend">
           <h2>Symbology</h2>
+          <div class="sub">Basemap</div>
+          <ul id="legendBasemap"></ul>
           <div class="sub">Diameter (mm)</div>
           <ul id="legendDiameter"></ul>
           <div class="sub">Age</div>
