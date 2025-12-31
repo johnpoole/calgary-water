@@ -12,6 +12,10 @@ This is a minimal static page that renders the GeoJSON in `data/` using D3.
 
 The page renders an online raster basemap using OpenStreetMap tile images (internet required).
 
+## Shareable views (URL state)
+
+The current pan/zoom and all legend filter toggles are encoded into the page URL query string automatically. Copy/paste the URL to share the exact same view.
+
 ## Run locally
 
 Browsers generally block `fetch()` when opening `index.html` directly from disk (the `file://` scheme). Run a local web server from this folder instead.

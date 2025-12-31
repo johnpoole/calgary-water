@@ -11,6 +11,99 @@ const tilesEl = document.getElementById("tiles");
 const geojsonUrl = "./data/Public_Water_Main_20251231.geojson";
 const materialLabelsUrl = "./material_labels.json";
 
+// URL state (shareable view): stores zoom/pan + current filters in the query string.
+// Example:
+//   ?k=2.1&x=-120&y=85&bm=1&dia=%E2%89%A4150,300&age=%3C20,20%E2%80%9350&mat=PVC,Other
+const urlState = {
+  initialized: false,
+  transform: d3.zoomIdentity,
+  _pending: false,
+};
+
+function parseCsvParam(params, key) {
+  const raw = params.get(key);
+  if (raw == null) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  return trimmed
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function readUrlStateIntoFilterState() {
+  const params = new URLSearchParams(window.location.search);
+
+  // Zoom transform
+  const k = Number(params.get("k"));
+  const x = Number(params.get("x"));
+  const y = Number(params.get("y"));
+  if (Number.isFinite(k) && k > 0 && Number.isFinite(x) && Number.isFinite(y)) {
+    urlState.transform = d3.zoomIdentity.translate(x, y).scale(k);
+  }
+
+  // Basemap
+  const bm = params.get("bm");
+  if (bm != null) {
+    filterState.basemapEnabled = bm === "1" || bm.toLowerCase() === "true";
+  }
+
+  // Filters
+  const dia = parseCsvParam(params, "dia");
+  if (dia != null) {
+    filterState.diameterBins = new Set(dia);
+  }
+
+  const age = parseCsvParam(params, "age");
+  if (age != null) {
+    filterState.ageBins = new Set(age);
+  }
+
+  const mat = parseCsvParam(params, "mat");
+  if (mat != null) {
+    filterState.materials = new Set(mat);
+  }
+}
+
+function writeUrlState(transform) {
+  const params = new URLSearchParams(window.location.search);
+
+  // Keep params stable (so sharing URLs is predictable).
+  const k = Number(transform?.k);
+  const x = Number(transform?.x);
+  const y = Number(transform?.y);
+  if (Number.isFinite(k) && Number.isFinite(x) && Number.isFinite(y)) {
+    params.set("k", k.toFixed(4));
+    params.set("x", x.toFixed(2));
+    params.set("y", y.toFixed(2));
+  } else {
+    params.delete("k");
+    params.delete("x");
+    params.delete("y");
+  }
+
+  params.set("bm", filterState.basemapEnabled ? "1" : "0");
+  params.set("dia", [...filterState.diameterBins].join(","));
+  params.set("age", [...filterState.ageBins].join(","));
+  params.set("mat", [...filterState.materials].join(","));
+
+  const next = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next !== current) {
+    history.replaceState(null, "", next);
+  }
+}
+
+function scheduleUrlWrite(transform) {
+  urlState.transform = transform;
+  if (urlState._pending) return;
+  urlState._pending = true;
+  window.requestAnimationFrame(() => {
+    urlState._pending = false;
+    writeUrlState(urlState.transform);
+  });
+}
+
 // Online basemap tiles (OpenStreetMap). For production usage, use an approved tile provider.
 const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_MAX_Z = 19;
@@ -407,7 +500,14 @@ function render(geojson, labels) {
   // Fit projection to data.
   projection.fitSize([w, h], geojson);
 
-  let currentTransform = d3.zoomIdentity;
+  // On first render, restore URL state (zoom + filters). Subsequent re-renders
+  // (e.g., resize) should preserve the in-memory state.
+  if (!urlState.initialized) {
+    readUrlStateIntoFilterState();
+    urlState.initialized = true;
+  }
+
+  let currentTransform = urlState.transform ?? d3.zoomIdentity;
 
   function applyBasemapVisibility() {
     if (!tilesEl) return;
@@ -419,6 +519,7 @@ function render(geojson, labels) {
       filterState.basemapEnabled = checked;
       applyBasemapVisibility();
       updateTiles(currentTransform);
+      scheduleUrlWrite(currentTransform);
       return;
     }
 
@@ -438,6 +539,7 @@ function render(geojson, labels) {
     }
 
     updateSymbology(currentTransform.k);
+    scheduleUrlWrite(currentTransform);
   }
 
   renderLegend(labels, onToggle);
@@ -450,9 +552,11 @@ function render(geojson, labels) {
     .scaleExtent([1, 20])
     .on("zoom", (event) => {
       currentTransform = event.transform;
+      urlState.transform = currentTransform;
       g.attr("transform", event.transform);
       updateSymbology(event.transform.k);
       updateTiles(event.transform);
+      scheduleUrlWrite(event.transform);
     });
 
   svg.call(zoom);
@@ -659,9 +763,11 @@ function render(geojson, labels) {
       });
   }
 
-  // Initial symbology at k=1
-  updateSymbology(1);
-  updateTiles(d3.zoomIdentity);
+  // Apply initial/restore transform (triggers zoom handler, symbology, tiles).
+  svg.call(zoom.transform, currentTransform);
+
+  // Ensure URL reflects the current state even if the page loads with defaults.
+  scheduleUrlWrite(currentTransform);
 
   svg.on("click", () => {
     selectedId = null;
