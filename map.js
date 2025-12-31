@@ -196,7 +196,7 @@ const MATERIAL_ORDER = [
 // Legend toggles (persist across re-renders)
 const filterState = {
   basemapEnabled: true,
-  overlay: "none", // 'none' | 'risk' | 'consequence'
+  overlay: "none", // style mode: 'none' (asset symbology) | 'risk' | 'consequence'
   diameterBins: new Set(["≤150", "200–250", "300", "400", "500–600", "≥750", "Unknown"]),
   ageBins: new Set(["<20", "20–50", "50–80", "≥80", "Unknown"]),
   materials: new Set([...MATERIAL_ORDER, "Other", "Unknown"]),
@@ -283,6 +283,13 @@ function riskBinFromScores(pof, cof) {
   if (product <= 8) return 2;
   if (product <= 12) return 3;
   return 4;
+}
+
+function lineWidthForLevel(level, k) {
+  // Used for Risk/Consequence styling modes.
+  const base = 1.4 + (clamp(level, 1, 4) - 1) * 1.0;
+  const boost = Math.max(1.0, Math.min(1.6, 1.0 + 0.25 * Math.log2(k + 1)));
+  return base * boost;
 }
 
 const MATERIAL_COLORS = new Map(
@@ -629,11 +636,25 @@ function summarizeProperties(properties, labels) {
   const iy = parseInstallYear(properties.year);
   const age = ageYears(iy);
 
+  const derived = {
+    diamMm,
+    diamBin: diameterBin(diamMm),
+    matCode: normalizeMaterial(properties.material),
+    ageBin: ageBin(age),
+    statusInd: (properties.status_ind ?? "").toString(),
+    lengthM: Number.isFinite(Number(properties.length)) ? Number(properties.length) : null,
+  };
+  const pof = pofScoreFromDerived(derived);
+  const cof = consequenceScoreFromDerived(derived);
+  const rbin = riskBinFromScores(pof, cof);
+
   const lines = [];
   lines.push(`diam: ${diamMm ?? "Unknown"}${diamMm != null ? " mm" : ""}`);
   lines.push(`material: ${materialName}`);
   lines.push(`year: ${iy ?? "Unknown"}`);
   lines.push(`age: ${age ?? "Unknown"}${age != null ? " yrs" : ""}`);
+  lines.push(`risk: ${RISK_LABELS[rbin - 1]} (PoF ${pof} × CoF ${cof})`);
+  lines.push(`consequence: ${RISK_LABELS[cof - 1]} (${cof})`);
 
   // Add a couple extra fields if present.
   for (const k of ["status_ind", "p_zone", "length"]) {
@@ -697,7 +718,7 @@ function render(geojson, labels) {
       else if (filterState.overlay === value) filterState.overlay = "none";
 
       renderLegend(labels, onToggle);
-      updateOverlay(currentTransform.k);
+      updateSymbology(currentTransform.k);
       scheduleUrlWrite(currentTransform);
       return;
     }
@@ -726,14 +747,12 @@ function render(geojson, labels) {
     }
 
     updateSymbology(currentTransform.k);
-    updateOverlay(currentTransform.k);
     scheduleUrlWrite(currentTransform);
   }
 
   renderLegend(labels, onToggle);
   applyBasemapVisibility();
 
-  const gHalo = svg.append("g").attr("class", "layer halo-layer");
   const g = svg.append("g").attr("class", "layer main-layer");
 
   const zoom = d3
@@ -743,9 +762,7 @@ function render(geojson, labels) {
       currentTransform = event.transform;
       urlState.transform = currentTransform;
       g.attr("transform", event.transform);
-      gHalo.attr("transform", event.transform);
       updateSymbology(event.transform.k);
-      updateOverlay(event.transform.k);
       updateTiles(event.transform);
       scheduleUrlWrite(event.transform);
     });
@@ -794,13 +811,6 @@ function render(geojson, labels) {
     f._derived = derived;
   }
 
-  const haloPaths = gHalo
-    .selectAll("path")
-    .data(features)
-    .join("path")
-    .attr("class", "feature feature-halo")
-    .attr("d", path);
-
   const paths = g
     .selectAll("path")
     .data(features)
@@ -827,65 +837,43 @@ function render(geojson, labels) {
   function updateSymbology(k) {
     const minDiam = minDiameterForZoomK(k);
 
+    const styleMode = filterState.overlay ?? "none";
+
     paths
+      .attr("stroke-linecap", "round")
       .attr("stroke", (d) => {
-        const matCode = d?._derived?.matCode ?? normalizeMaterial(d?.properties?.material);
+        const derived = d?._derived;
+        if (styleMode === "risk") {
+          const bin = clamp(Number(derived?.riskBin ?? 2), 1, 4);
+          return riskPalette()[bin - 1];
+        }
+        if (styleMode === "consequence") {
+          const cof = clamp(Number(derived?.cof ?? 2), 1, 4);
+          return consequencePalette()[cof - 1];
+        }
+
+        const matCode = derived?.matCode ?? normalizeMaterial(d?.properties?.material);
         if (matCode !== "Unknown" && !MATERIAL_COLORS.has(matCode)) return "#9ca3af";
         return colorForMaterial(matCode);
       })
-      .attr("stroke-linecap", "round")
       .attr("stroke-dasharray", (d) => {
+        if (styleMode === "risk" || styleMode === "consequence") return null;
         const bin = d?._derived?.ageBin ?? ageBin(ageYears(parseInstallYear(d?.properties?.year)));
         const dash = dashForAgeBin(bin);
         return dash ?? null;
       })
       .attr("stroke-width", (d) => {
-        const diamMm = d?._derived?.diamMm ?? parseDiameterMm(d?.properties?.diam);
-        return strokeWidthPx(diamMm, k);
-      })
-      .style("display", (d) => {
         const derived = d?._derived;
-        const diamMm = derived?.diamMm ?? parseDiameterMm(d?.properties?.diam);
-        const diamBin = derived?.diamBin ?? diameterBin(diamMm);
-        const matGroup = derived?.matGroup ?? materialGroup(normalizeMaterial(d?.properties?.material));
-        const aBin = derived?.ageBin ?? ageBin(ageYears(parseInstallYear(d?.properties?.year)));
-
-        if (!filterState.diameterBins.has(diamBin)) return "none";
-        if (!filterState.materials.has(matGroup)) return "none";
-        if (!filterState.ageBins.has(aBin)) return "none";
-
-        if (minDiam <= 0) return null;
-        if (diamMm == null) return "none";
-        return diamMm >= minDiam ? null : "none";
-      });
-  }
-
-  function updateOverlay(k) {
-    const minDiam = minDiameterForZoomK(k);
-
-    if (filterState.overlay === "none") {
-      haloPaths.style("display", "none");
-      return;
-    }
-
-    const palette =
-      filterState.overlay === "risk" ? riskPalette() : consequencePalette();
-
-    haloPaths
-      .attr("stroke-linecap", "round")
-      .attr("stroke-dasharray", null)
-      .attr("stroke", (d) => {
-        const derived = d?._derived;
-        if (filterState.overlay === "risk") {
+        if (styleMode === "risk") {
           const bin = clamp(Number(derived?.riskBin ?? 2), 1, 4);
-          return palette[bin - 1];
+          return lineWidthForLevel(bin, k);
         }
-        const cof = clamp(Number(derived?.cof ?? 2), 1, 4);
-        return palette[cof - 1];
-      })
-      .attr("stroke-width", (d) => {
-        const diamMm = d?._derived?.diamMm ?? parseDiameterMm(d?.properties?.diam);
-        return strokeWidthPx(diamMm, k) + 4;
+        if (styleMode === "consequence") {
+          const cof = clamp(Number(derived?.cof ?? 2), 1, 4);
+          return lineWidthForLevel(cof, k);
+        }
+        const diamMm = derived?.diamMm ?? parseDiameterMm(d?.properties?.diam);
+        return strokeWidthPx(diamMm, k);
       })
       .style("display", (d) => {
         const derived = d?._derived;
