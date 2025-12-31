@@ -2,8 +2,207 @@ const container = document.getElementById("map");
 const statusEl = document.getElementById("status");
 const tooltipEl = document.getElementById("tooltip");
 const inspectorContentEl = document.getElementById("inspectorContent");
+const legendDiameterEl = document.getElementById("legendDiameter");
+const legendAgeEl = document.getElementById("legendAge");
+const legendMaterialEl = document.getElementById("legendMaterial");
 
 const geojsonUrl = "./data/Public_Water_Main_20251231.geojson";
+
+// This repo's GeoJSON uses these keys (confirmed via profile_geojson.py):
+// - diameter: properties.diam (string)
+// - material: properties.material (string)
+// - install year: properties.year (string)
+const CURRENT_YEAR = 2025;
+
+const MATERIAL_ORDER = [
+  "PVC",
+  "CI",
+  "YDI",
+  "PDI",
+  "ST",
+  "PVCG",
+  "CON",
+  "DI",
+  "AC",
+  "PE",
+  "CU",
+];
+
+const MATERIAL_COLORS = new Map(
+  MATERIAL_ORDER.map((m, i) => [m, d3.schemeTableau10[i % 10]])
+);
+
+function normalizeMaterial(raw) {
+  const s = (raw ?? "").toString().trim().toUpperCase();
+  if (!s) return "Unknown";
+  return s;
+}
+
+function parseDiameterMm(raw) {
+  const n = Number((raw ?? "").toString().trim());
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+function parseInstallYear(raw) {
+  const s = (raw ?? "").toString();
+  const m = s.match(/\b(18|19|20)\d{2}\b/);
+  if (!m) return null;
+  const y = Number(m[0]);
+  if (!Number.isFinite(y) || y < 1800 || y > CURRENT_YEAR) return null;
+  return y;
+}
+
+function diameterBin(diamMm) {
+  if (diamMm == null) return "Unknown";
+  if (diamMm <= 150) return "≤150";
+  if (diamMm <= 250) return "200–250";
+  if (diamMm <= 300) return "300";
+  if (diamMm <= 400) return "400";
+  if (diamMm <= 600) return "500–600";
+  return "≥750";
+}
+
+function ageYears(installYear) {
+  if (installYear == null) return null;
+  const a = CURRENT_YEAR - installYear;
+  return a >= 0 ? a : null;
+}
+
+function ageBin(age) {
+  if (age == null) return "Unknown";
+  if (age < 20) return "<20";
+  if (age < 50) return "20–50";
+  if (age < 80) return "50–80";
+  return "≥80";
+}
+
+function dashForAgeBin(bin, k) {
+  // Keep dash lengths roughly constant in screen space even while zooming,
+  // because the layer is transformed by d3-zoom.
+  const s = Math.max(0.35, 1 / Math.max(1, k));
+  const dash = (a, b) => `${(a * s).toFixed(2)},${(b * s).toFixed(2)}`;
+  const dashDot = (a, b, c, d) =>
+    `${(a * s).toFixed(2)},${(b * s).toFixed(2)},${(c * s).toFixed(2)},${
+      (d * s).toFixed(2)
+    }`;
+
+  switch (bin) {
+    case "<20":
+      return null; // solid
+    case "20–50":
+      return dash(8, 4); // dashed
+    case "50–80":
+      return dash(2, 4); // dotted-ish
+    case "≥80":
+      return dashDot(10, 4, 2, 4); // dash-dot
+    default:
+      return dash(1, 6); // sparse dots for unknown
+  }
+}
+
+function colorForMaterial(mat) {
+  if (MATERIAL_COLORS.has(mat)) return MATERIAL_COLORS.get(mat);
+  if (mat === "Unknown") return "#6b7280";
+  return "#9ca3af";
+}
+
+function baseStrokeWidthForDiameter(diamMm) {
+  if (diamMm == null) return 0.8;
+  if (diamMm <= 150) return 0.8;
+  if (diamMm <= 250) return 1.2;
+  if (diamMm <= 300) return 1.6;
+  if (diamMm <= 400) return 2.2;
+  if (diamMm <= 600) return 3.0;
+  return 4.0;
+}
+
+function strokeWidthPx(diamMm, k) {
+  const base = baseStrokeWidthForDiameter(diamMm);
+  // Make differences visible at low zoom without exploding at high zoom.
+  const boost = Math.max(0.9, Math.min(1.7, 0.9 + 0.35 * Math.log2(k + 1)));
+  return base * boost;
+}
+
+function minDiameterForZoomK(k) {
+  // Level-of-detail filtering to reduce clutter when zoomed out.
+  if (k < 1.5) return 400;
+  if (k < 4) return 250;
+  if (k < 8) return 150;
+  return 0;
+}
+
+function renderLegend() {
+  if (legendDiameterEl) {
+    legendDiameterEl.innerHTML = "";
+    const diaItems = [
+      { label: "≤150", w: 0.8 },
+      { label: "200–250", w: 1.2 },
+      { label: "300", w: 1.6 },
+      { label: "400", w: 2.2 },
+      { label: "500–600", w: 3.0 },
+      { label: "≥750", w: 4.0 },
+      { label: "Unknown", w: 0.8 },
+    ];
+    for (const it of diaItems) {
+      const li = document.createElement("li");
+      const sw = document.createElement("div");
+      sw.className = "swatch";
+      sw.style.borderTopWidth = `${it.w}px`;
+      sw.style.borderTopColor = "#111827";
+      li.appendChild(sw);
+      li.appendChild(document.createTextNode(it.label));
+      legendDiameterEl.appendChild(li);
+    }
+  }
+
+  if (legendAgeEl) {
+    legendAgeEl.innerHTML = "";
+    const ageItems = [
+      { label: "<20 years", bin: "<20" },
+      { label: "20–50 years", bin: "20–50" },
+      { label: "50–80 years", bin: "50–80" },
+      { label: "≥80 years", bin: "≥80" },
+      { label: "Unknown", bin: "Unknown" },
+    ];
+    for (const it of ageItems) {
+      const li = document.createElement("li");
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("width", "44");
+      svg.setAttribute("height", "12");
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", "2");
+      line.setAttribute("x2", "42");
+      line.setAttribute("y1", "6");
+      line.setAttribute("y2", "6");
+      line.setAttribute("stroke", "#111827");
+      line.setAttribute("stroke-width", "3");
+      line.setAttribute("stroke-linecap", "round");
+      const dash = dashForAgeBin(it.bin, 1);
+      if (dash) line.setAttribute("stroke-dasharray", dash);
+      svg.appendChild(line);
+      li.appendChild(svg);
+      li.appendChild(document.createTextNode(it.label));
+      legendAgeEl.appendChild(li);
+    }
+  }
+
+  if (legendMaterialEl) {
+    legendMaterialEl.innerHTML = "";
+    const mats = [...MATERIAL_ORDER, "Other", "Unknown"];
+    for (const m of mats) {
+      const li = document.createElement("li");
+      const sw = document.createElement("div");
+      sw.className = "swatch";
+      sw.style.borderTopWidth = "3px";
+      sw.style.borderTopColor =
+        m === "Other" ? "#9ca3af" : m === "Unknown" ? "#6b7280" : colorForMaterial(m);
+      li.appendChild(sw);
+      li.appendChild(document.createTextNode(m));
+      legendMaterialEl.appendChild(li);
+    }
+  }
+}
 
 function showError(err) {
   if (statusEl) statusEl.remove();
@@ -32,13 +231,25 @@ function createSvg(width, height) {
 function summarizeProperties(properties) {
   if (!properties || typeof properties !== "object") return "(no properties)";
 
-  const entries = Object.entries(properties);
-  if (entries.length === 0) return "(no properties)";
+  const diamMm = parseDiameterMm(properties.diam);
+  const material = normalizeMaterial(properties.material);
+  const iy = parseInstallYear(properties.year);
+  const age = ageYears(iy);
 
-  return entries
-    .slice(0, 6)
-    .map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
-    .join("\n");
+  const lines = [];
+  lines.push(`diam: ${diamMm ?? "Unknown"}${diamMm != null ? " mm" : ""}`);
+  lines.push(`material: ${material}`);
+  lines.push(`year: ${iy ?? "Unknown"}`);
+  lines.push(`age: ${age ?? "Unknown"}${age != null ? " yrs" : ""}`);
+
+  // Add a couple extra fields if present.
+  for (const k of ["status_ind", "p_zone", "length"]) {
+    if (properties[k] != null && properties[k] !== "") {
+      lines.push(`${k}: ${properties[k]}`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 function setTooltip(text, x, y) {
@@ -69,6 +280,8 @@ function render(geojson) {
   // Fit projection to data.
   projection.fitSize([w, h], geojson);
 
+  renderLegend();
+
   const g = svg.append("g").attr("class", "layer");
 
   const zoom = d3
@@ -76,6 +289,7 @@ function render(geojson) {
     .scaleExtent([1, 20])
     .on("zoom", (event) => {
       g.attr("transform", event.transform);
+      updateSymbology(event.transform.k);
     });
 
   svg.call(zoom);
@@ -105,7 +319,8 @@ function render(geojson) {
   const features =
     geojson.type === "FeatureCollection" ? geojson.features : [geojson];
 
-  g.selectAll("path")
+  const paths = g
+    .selectAll("path")
     .data(features)
     .join("path")
     .attr("class", "feature")
@@ -134,6 +349,38 @@ function render(geojson) {
       );
       setInspector(d);
     });
+
+  function updateSymbology(k) {
+    const minDiam = minDiameterForZoomK(k);
+
+    paths
+      .attr("stroke", (d) => {
+        const mat = normalizeMaterial(d?.properties?.material);
+        // Collapse non-top materials to "Other" to keep legend manageable.
+        if (mat !== "Unknown" && !MATERIAL_COLORS.has(mat)) return "#9ca3af";
+        return colorForMaterial(mat);
+      })
+      .attr("stroke-linecap", "round")
+      .attr("stroke-dasharray", (d) => {
+        const iy = parseInstallYear(d?.properties?.year);
+        const bin = ageBin(ageYears(iy));
+        const dash = dashForAgeBin(bin, k);
+        return dash ?? null;
+      })
+      .attr("stroke-width", (d) => {
+        const diamMm = parseDiameterMm(d?.properties?.diam);
+        return strokeWidthPx(diamMm, k);
+      })
+      .style("display", (d) => {
+        const diamMm = parseDiameterMm(d?.properties?.diam);
+        if (minDiam <= 0) return null;
+        if (diamMm == null) return "none";
+        return diamMm >= minDiam ? null : "none";
+      });
+  }
+
+  // Initial symbology at k=1
+  updateSymbology(1);
 
   svg.on("click", () => {
     selectedId = null;

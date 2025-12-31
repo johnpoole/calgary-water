@@ -52,18 +52,15 @@
 
       .feature {
         fill: none;
-        stroke: #2563eb;
-        stroke-width: 1;
         vector-effect: non-scaling-stroke;
       }
 
       .feature.is-hover {
-        stroke-width: 2;
+        stroke: #111827;
       }
 
       .feature.is-selected {
         stroke: #111827;
-        stroke-width: 2;
       }
 
       .tooltip {
@@ -93,6 +90,59 @@
         border: 1px solid #e5e7eb;
         border-radius: 8px;
         padding: 10px;
+      }
+
+      .legend {
+        position: absolute;
+        left: 10px;
+        bottom: 10px;
+        width: min(360px, 92vw);
+        max-height: min(46vh, 460px);
+        overflow: auto;
+        background: rgba(255, 255, 255, 0.95);
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 10px;
+      }
+
+      .legend h2 {
+        font-size: 12px;
+        margin: 0 0 6px;
+        font-weight: 600;
+        color: #111827;
+      }
+
+      .legend .sub {
+        margin-top: 8px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #111827;
+      }
+
+      .legend ul {
+        list-style: none;
+        padding: 0;
+        margin: 6px 0 0;
+      }
+
+      .legend li {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        color: #111827;
+        padding: 2px 0;
+      }
+
+      .legend .swatch {
+        height: 0;
+        border-top-style: solid;
+        border-top-color: #111827;
+      }
+
+      .legend svg {
+        display: block;
       }
 
       .inspector h2 {
@@ -132,6 +182,15 @@
       <div id="map">
         <div class="loading" id="status">Loading GeoJSON…</div>
         <div class="tooltip" id="tooltip" aria-hidden="true"></div>
+        <div class="legend" id="legend">
+          <h2>Symbology</h2>
+          <div class="sub">Diameter (mm)</div>
+          <ul id="legendDiameter"></ul>
+          <div class="sub">Age</div>
+          <ul id="legendAge"></ul>
+          <div class="sub">Material (top)</div>
+          <ul id="legendMaterial"></ul>
+        </div>
         <div class="inspector" id="inspector">
           <h2>Feature Inspector</h2>
           <pre id="inspectorContent">Click a feature to view its properties.</pre>
