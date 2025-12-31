@@ -1,7 +1,9 @@
 const container = document.getElementById("map");
 const statusEl = document.getElementById("status");
 const tooltipEl = document.getElementById("tooltip");
-const inspectorContentEl = document.getElementById("inspectorContent");
+const legendOverlayEl = document.getElementById("legendOverlay");
+const legendOverlayKeyTitleEl = document.getElementById("legendOverlayKeyTitle");
+const legendOverlayKeyEl = document.getElementById("legendOverlayKey");
 const legendDiameterEl = document.getElementById("legendDiameter");
 const legendAgeEl = document.getElementById("legendAge");
 const legendMaterialEl = document.getElementById("legendMaterial");
@@ -74,6 +76,12 @@ function readUrlStateIntoFilterState() {
     filterState.basemapEnabled = bm === "1" || bm.toLowerCase() === "true";
   }
 
+  // Overlay
+  const ov = (params.get("ov") ?? "").toString().trim().toLowerCase();
+  if (ov === "risk" || ov === "consequence" || ov === "none") {
+    filterState.overlay = ov;
+  }
+
   // Filters
   const dia = parseCsvParam(params, "dia");
   if (dia != null) {
@@ -109,6 +117,7 @@ function writeUrlState(transform) {
   }
 
   params.set("bm", filterState.basemapEnabled ? "1" : "0");
+  params.set("ov", filterState.overlay ?? "none");
   params.set("dia", [...filterState.diameterBins].join(","));
   params.set("age", [...filterState.ageBins].join(","));
   params.set("mat", [...filterState.materials].join(","));
@@ -187,10 +196,94 @@ const MATERIAL_ORDER = [
 // Legend toggles (persist across re-renders)
 const filterState = {
   basemapEnabled: true,
+  overlay: "none", // 'none' | 'risk' | 'consequence'
   diameterBins: new Set(["≤150", "200–250", "300", "400", "500–600", "≥750", "Unknown"]),
   ageBins: new Set(["<20", "20–50", "50–80", "≥80", "Unknown"]),
   materials: new Set([...MATERIAL_ORDER, "Other", "Unknown"]),
 };
+
+const RISK_LABELS = ["Low", "Medium", "High", "Very High"];
+
+function riskPalette() {
+  // Low -> High (green -> red)
+  const base =
+    d3.schemeRdYlGn?.[5] ?? ["#d73027", "#fc8d59", "#fee08b", "#d9ef8b", "#1a9850"];
+  return [base[4], base[3], base[1], base[0]];
+}
+
+function consequencePalette() {
+  const base =
+    d3.schemeBlues?.[5] ?? ["#eff6ff", "#bfdbfe", "#60a5fa", "#2563eb", "#1e3a8a"];
+  return [base[1], base[2], base[3], base[4]];
+}
+
+function pofScoreFromDerived(derived) {
+  // Likelihood / Probability of failure (PoF) proxy from age + material + status.
+  // Returns an integer in [1..4].
+  const ageBinLabel = derived?.ageBin ?? "Unknown";
+  const matCode = derived?.matCode ?? "Unknown";
+  const status = (derived?.statusInd ?? "").toString().trim().toUpperCase();
+
+  let score = 2;
+
+  // Age component
+  if (ageBinLabel === "<20") score = 1;
+  else if (ageBinLabel === "20–50") score = 2;
+  else if (ageBinLabel === "50–80") score = 3;
+  else if (ageBinLabel === "≥80") score = 4;
+  else score = 2;
+
+  // Material adjustment (simple heuristic)
+  const matAdj = new Map([
+    ["PVC", -1],
+    ["PE", -1],
+    ["DI", 0],
+    ["PDI", 0],
+    ["YDI", 0],
+    ["ST", 0],
+    ["CI", 1],
+    ["AC", 1],
+    ["ECI", 1],
+    ["PCI", 1],
+  ]);
+  score += matAdj.get(matCode) ?? 0;
+
+  // Status adjustment: if status indicates out-of-service/abandoned/etc, bump PoF.
+  // We don't know the coding scheme, so we only match obvious words.
+  if (status.includes("ABAND") || status.includes("OUT") || status.includes("INACT")) {
+    score += 1;
+  }
+
+  return clamp(Math.round(score), 1, 4);
+}
+
+function consequenceScoreFromDerived(derived) {
+  // Consequence of failure (CoF) proxy from diameter (+ tiny bump for long segments).
+  // Returns an integer in [1..4].
+  const diamMm = derived?.diamMm;
+  const lengthM = derived?.lengthM;
+
+  let score = 2;
+  if (diamMm == null) score = 2;
+  else if (diamMm <= 150) score = 1;
+  else if (diamMm <= 250) score = 2;
+  else if (diamMm <= 400) score = 3;
+  else score = 4;
+
+  if (typeof lengthM === "number" && Number.isFinite(lengthM)) {
+    if (lengthM >= 500) score += 1;
+  }
+
+  return clamp(Math.round(score), 1, 4);
+}
+
+function riskBinFromScores(pof, cof) {
+  const product = (pof ?? 2) * (cof ?? 2); // 1..16
+  if (product <= 4) return 1;
+  if (product <= 8) return 2;
+  if (product <= 12) return 3;
+  return 4;
+}
 
 const MATERIAL_COLORS = new Map(
   MATERIAL_ORDER.map((m, i) => [m, d3.schemeTableau10[i % 10]])
@@ -332,6 +425,63 @@ function renderLegend(labels, onToggle) {
     li.appendChild(key);
     li.appendChild(document.createTextNode(label));
     listEl.appendChild(li);
+  }
+
+  function makeKeyItem({ listEl, label, color }) {
+    const li = document.createElement("li");
+    const key = document.createElement("div");
+    key.className = "key";
+    const sw = document.createElement("div");
+    sw.className = "swatch";
+    sw.style.borderTopWidth = "4px";
+    sw.style.borderTopColor = color;
+    key.appendChild(sw);
+    li.appendChild(key);
+    li.appendChild(document.createTextNode(label));
+    listEl.appendChild(li);
+  }
+
+  if (legendOverlayEl) {
+    legendOverlayEl.innerHTML = "";
+    const swRisk = document.createElement("div");
+    swRisk.className = "swatch";
+    swRisk.style.borderTopWidth = "4px";
+    swRisk.style.borderTopColor = riskPalette()[3];
+    makeCheckbox({
+      listEl: legendOverlayEl,
+      label: "Risk",
+      checked: filterState.overlay === "risk",
+      kind: "overlay",
+      value: "risk",
+      swatchEl: swRisk,
+    });
+
+    const swCof = document.createElement("div");
+    swCof.className = "swatch";
+    swCof.style.borderTopWidth = "4px";
+    swCof.style.borderTopColor = consequencePalette()[3];
+    makeCheckbox({
+      listEl: legendOverlayEl,
+      label: "Consequence",
+      checked: filterState.overlay === "consequence",
+      kind: "overlay",
+      value: "consequence",
+      swatchEl: swCof,
+    });
+  }
+
+  if (legendOverlayKeyTitleEl) {
+    legendOverlayKeyTitleEl.style.display = filterState.overlay === "none" ? "none" : "block";
+  }
+
+  if (legendOverlayKeyEl) {
+    legendOverlayKeyEl.innerHTML = "";
+    if (filterState.overlay !== "none") {
+      const palette = filterState.overlay === "risk" ? riskPalette() : consequencePalette();
+      for (let i = 0; i < 4; i++) {
+        makeKeyItem({ listEl: legendOverlayKeyEl, label: RISK_LABELS[i], color: palette[i] });
+      }
+    }
   }
 
   if (legendBasemapEl) {
@@ -541,6 +691,17 @@ function render(geojson, labels) {
   }
 
   function onToggle(kind, value, checked) {
+    if (kind === "overlay") {
+      // Mutually exclusive overlays.
+      if (checked) filterState.overlay = value;
+      else if (filterState.overlay === value) filterState.overlay = "none";
+
+      renderLegend(labels, onToggle);
+      updateOverlay(currentTransform.k);
+      scheduleUrlWrite(currentTransform);
+      return;
+    }
+
     if (kind === "basemap") {
       filterState.basemapEnabled = checked;
       applyBasemapVisibility();
@@ -565,13 +726,15 @@ function render(geojson, labels) {
     }
 
     updateSymbology(currentTransform.k);
+    updateOverlay(currentTransform.k);
     scheduleUrlWrite(currentTransform);
   }
 
   renderLegend(labels, onToggle);
   applyBasemapVisibility();
 
-  const g = svg.append("g").attr("class", "layer");
+  const gHalo = svg.append("g").attr("class", "layer halo-layer");
+  const g = svg.append("g").attr("class", "layer main-layer");
 
   const zoom = d3
     .zoom()
@@ -580,47 +743,17 @@ function render(geojson, labels) {
       currentTransform = event.transform;
       urlState.transform = currentTransform;
       g.attr("transform", event.transform);
+      gHalo.attr("transform", event.transform);
       updateSymbology(event.transform.k);
+      updateOverlay(event.transform.k);
       updateTiles(event.transform);
       scheduleUrlWrite(event.transform);
     });
 
   svg.call(zoom);
 
-  let selectedId = null;
-
   function featureId(d, i) {
     return d?.id ?? d?.properties?.OBJECTID ?? d?.properties?.ObjectId ?? i;
-  }
-
-  function setInspector(feature) {
-    if (!inspectorContentEl) return;
-    if (!feature) {
-      inspectorContentEl.textContent = "Click a feature to view its properties.";
-      return;
-    }
-
-    const matCode = normalizeMaterial(feature?.properties?.material);
-    const matName = materialLabel(matCode, labels);
-    const diamMm = parseDiameterMm(feature?.properties?.diam);
-    const iy = parseInstallYear(feature?.properties?.year);
-    const a = ageYears(iy);
-
-    const payload = {
-      id: feature.id ?? null,
-      geometryType: feature.geometry?.type ?? null,
-      derived: {
-        diameterMm: diamMm,
-        materialCode: matCode,
-        materialName: matName,
-        installYear: iy,
-        ageYears: a,
-        ageBin: ageBin(a),
-      },
-      properties: feature.properties ?? {},
-    };
-
-    inspectorContentEl.textContent = JSON.stringify(payload, null, 2);
   }
 
   const features =
@@ -636,8 +769,37 @@ function render(geojson, labels) {
     const iy = parseInstallYear(props.year);
     const a = ageYears(iy);
     const aBin = ageBin(a);
-    f._derived = { diamMm, diamBin, matCode, matGroup, installYear: iy, ageYears: a, ageBin: aBin };
+
+    const statusInd = (props.status_ind ?? "").toString();
+    const lengthN = Number((props.length ?? "").toString().trim());
+    const lengthM = Number.isFinite(lengthN) ? lengthN : null;
+
+    const derived = {
+      diamMm,
+      diamBin,
+      matCode,
+      matGroup,
+      installYear: iy,
+      ageYears: a,
+      ageBin: aBin,
+      statusInd,
+      lengthM,
+    };
+
+    const pof = pofScoreFromDerived(derived);
+    const cof = consequenceScoreFromDerived(derived);
+    derived.pof = pof;
+    derived.cof = cof;
+    derived.riskBin = riskBinFromScores(pof, cof);
+    f._derived = derived;
   }
+
+  const haloPaths = gHalo
+    .selectAll("path")
+    .data(features)
+    .join("path")
+    .attr("class", "feature feature-halo")
+    .attr("d", path);
 
   const paths = g
     .selectAll("path")
@@ -660,14 +822,6 @@ function render(geojson, labels) {
     .on("click", function (event, d) {
       event.preventDefault();
       event.stopPropagation();
-
-      const id = featureId(d);
-      selectedId = id;
-      g.selectAll("path").classed(
-        "is-selected",
-        (dd, ii) => featureId(dd, ii) === selectedId
-      );
-      setInspector(d);
     });
 
   function updateSymbology(k) {
@@ -688,6 +842,50 @@ function render(geojson, labels) {
       .attr("stroke-width", (d) => {
         const diamMm = d?._derived?.diamMm ?? parseDiameterMm(d?.properties?.diam);
         return strokeWidthPx(diamMm, k);
+      })
+      .style("display", (d) => {
+        const derived = d?._derived;
+        const diamMm = derived?.diamMm ?? parseDiameterMm(d?.properties?.diam);
+        const diamBin = derived?.diamBin ?? diameterBin(diamMm);
+        const matGroup = derived?.matGroup ?? materialGroup(normalizeMaterial(d?.properties?.material));
+        const aBin = derived?.ageBin ?? ageBin(ageYears(parseInstallYear(d?.properties?.year)));
+
+        if (!filterState.diameterBins.has(diamBin)) return "none";
+        if (!filterState.materials.has(matGroup)) return "none";
+        if (!filterState.ageBins.has(aBin)) return "none";
+
+        if (minDiam <= 0) return null;
+        if (diamMm == null) return "none";
+        return diamMm >= minDiam ? null : "none";
+      });
+  }
+
+  function updateOverlay(k) {
+    const minDiam = minDiameterForZoomK(k);
+
+    if (filterState.overlay === "none") {
+      haloPaths.style("display", "none");
+      return;
+    }
+
+    const palette =
+      filterState.overlay === "risk" ? riskPalette() : consequencePalette();
+
+    haloPaths
+      .attr("stroke-linecap", "round")
+      .attr("stroke-dasharray", null)
+      .attr("stroke", (d) => {
+        const derived = d?._derived;
+        if (filterState.overlay === "risk") {
+          const bin = clamp(Number(derived?.riskBin ?? 2), 1, 4);
+          return palette[bin - 1];
+        }
+        const cof = clamp(Number(derived?.cof ?? 2), 1, 4);
+        return palette[cof - 1];
+      })
+      .attr("stroke-width", (d) => {
+        const diamMm = d?._derived?.diamMm ?? parseDiameterMm(d?.properties?.diam);
+        return strokeWidthPx(diamMm, k) + 4;
       })
       .style("display", (d) => {
         const derived = d?._derived;
@@ -796,9 +994,7 @@ function render(geojson, labels) {
   scheduleUrlWrite(currentTransform);
 
   svg.on("click", () => {
-    selectedId = null;
-    g.selectAll("path").classed("is-selected", false);
-    setInspector(null);
+    // no-op (selection/inspector removed)
   });
 }
 

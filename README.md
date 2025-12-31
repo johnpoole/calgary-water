@@ -8,6 +8,10 @@ This is a minimal static page that renders the GeoJSON in `data/` using D3.
 - Zoom: mouse wheel / trackpad pinch
 - Query: hover for a quick tooltip, click a feature to inspect its properties
 
+## Overlays (Risk / Consequence)
+
+The legend includes optional overlay layers for **Risk** and **Consequence** (shown as a colored halo behind the pipes). These are heuristic scores derived from the available fields (e.g., year/material/diameter) and are intended as a starting point.
+
 ## Basemap
 
 The page renders an online raster basemap using OpenStreetMap tile images (internet required).

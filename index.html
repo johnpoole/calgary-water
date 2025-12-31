@@ -78,6 +78,11 @@
         vector-effect: non-scaling-stroke;
       }
 
+      .feature.feature-halo {
+        pointer-events: none;
+        opacity: 0.85;
+      }
+
       .feature.is-hover {
         stroke: #111827;
       }
@@ -269,6 +274,10 @@
             </button>
           </div>
           <div class="legend-body" id="legendBody">
+              <div class="sub">Overlays</div>
+              <ul id="legendOverlay"></ul>
+              <div class="sub" id="legendOverlayKeyTitle" style="display: none;">Overlay key</div>
+              <ul id="legendOverlayKey"></ul>
             <div class="sub">Basemap</div>
             <ul id="legendBasemap"></ul>
             <div class="sub">Diameter (mm)</div>
@@ -279,10 +288,7 @@
             <ul id="legendMaterial"></ul>
           </div>
         </div>
-        <div class="inspector" id="inspector">
-          <h2>Feature Inspector</h2>
-          <pre id="inspectorContent">Click a feature to view its properties.</pre>
-        </div>
+        
       </div>
     </div>
 
