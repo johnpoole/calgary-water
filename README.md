@@ -8,9 +8,11 @@ This is a minimal static page that renders the GeoJSON in `data/` using D3.
 - Zoom: mouse wheel / trackpad pinch
 - Query: hover for a quick tooltip, click a feature to inspect its properties
 
-## Overlays (Risk / Consequence)
+## Style (Risk / Consequence)
 
-The legend includes optional overlay layers for **Risk** and **Consequence** (shown as a colored halo behind the pipes). These are heuristic scores derived from the available fields (e.g., year/material/diameter) and are intended as a starting point.
+The legend includes a **Style** selector for **Risk** and **Consequence**.
+
+These scores are derived from the available fields (e.g., install year / material / diameter) using the qualitative guidance in [docs/Pipe_Risk_Assessment_Water_Mains_North_America.docx](docs/Pipe_Risk_Assessment_Water_Mains_North_America.docx) (implemented in [risk_consequence.js](risk_consequence.js)).
 
 ## Basemap
 

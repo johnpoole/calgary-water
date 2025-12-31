@@ -1,3 +1,5 @@
+import { RiskConsequenceModel } from "./risk_consequence.js";
+
 const container = document.getElementById("map");
 const statusEl = document.getElementById("status");
 const tooltipEl = document.getElementById("tooltip");
@@ -15,6 +17,7 @@ const legendBodyEl = document.getElementById("legendBody");
 
 const geojsonUrl = "./data/Public_Water_Main_20251231.geojson";
 const materialLabelsUrl = "./material_labels.json";
+const riskCsvUrl = "./docs/distinct_material_diameter_year_with_risk.csv";
 
 function setLegendCollapsed(isCollapsed) {
   if (!legendEl || !legendToggleEl) return;
@@ -202,87 +205,45 @@ const filterState = {
   materials: new Set([...MATERIAL_ORDER, "Other", "Unknown"]),
 };
 
-const RISK_LABELS = ["Low", "Medium", "High", "Very High"];
+const riskModel = new RiskConsequenceModel({ currentYear: CURRENT_YEAR });
 
-function riskPalette() {
-  // Low -> High (green -> red)
-  const base =
-    d3.schemeRdYlGn?.[5] ?? ["#d73027", "#fc8d59", "#fee08b", "#d9ef8b", "#1a9850"];
-  return [base[4], base[3], base[1], base[0]];
-}
+async function loadRiskOverridesCsv() {
+  // Expected columns: material, diam, year, LoF, CoF, RiskClass, family
+  try {
+    const res = await fetch(riskCsvUrl, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    const text = await res.text();
+    const rows = d3.csvParse(text);
+    const map = new Map();
 
-function consequencePalette() {
-  const base =
-    d3.schemeBlues?.[5] ?? ["#eff6ff", "#bfdbfe", "#60a5fa", "#2563eb", "#1e3a8a"];
-  return [base[1], base[2], base[3], base[4]];
-}
+    const toNum = (v) => {
+      const n = Number((v ?? "").toString().trim());
+      return Number.isFinite(n) ? n : null;
+    };
 
-function pofScoreFromDerived(derived) {
-  // Likelihood / Probability of failure (PoF) proxy from age + material + status.
-  // Returns an integer in [1..4].
-  const ageBinLabel = derived?.ageBin ?? "Unknown";
-  const matCode = derived?.matCode ?? "Unknown";
-  const status = (derived?.statusInd ?? "").toString().trim().toUpperCase();
+    for (const r of rows) {
+      const materialRaw = (r.material ?? "").toString().trim().toUpperCase();
+      const diamRaw = (r.diam ?? "").toString().trim();
+      const yearRaw = (r.year ?? "").toString().trim();
+      if (!materialRaw || !diamRaw || !yearRaw) continue;
 
-  let score = 2;
+      const key = `${materialRaw}|${diamRaw}|${yearRaw}`;
+      map.set(key, {
+        LoF: toNum(r.LoF),
+        CoF: toNum(r.CoF),
+        RiskClass: (r.RiskClass ?? "").toString().trim(),
+        family: (r.family ?? "").toString().trim(),
+      });
+    }
 
-  // Age component
-  if (ageBinLabel === "<20") score = 1;
-  else if (ageBinLabel === "20–50") score = 2;
-  else if (ageBinLabel === "50–80") score = 3;
-  else if (ageBinLabel === "≥80") score = 4;
-  else score = 2;
-
-  // Material adjustment (simple heuristic)
-  const matAdj = new Map([
-    ["PVC", -1],
-    ["PE", -1],
-    ["DI", 0],
-    ["PDI", 0],
-    ["YDI", 0],
-    ["ST", 0],
-    ["CI", 1],
-    ["AC", 1],
-    ["ECI", 1],
-    ["PCI", 1],
-  ]);
-  score += matAdj.get(matCode) ?? 0;
-
-  // Status adjustment: if status indicates out-of-service/abandoned/etc, bump PoF.
-  // We don't know the coding scheme, so we only match obvious words.
-  if (status.includes("ABAND") || status.includes("OUT") || status.includes("INACT")) {
-    score += 1;
+    riskModel.setCombinationOverrides(map);
+    return map.size;
+  } catch (e) {
+    // If the CSV isn't present/valid, keep doc-based scoring.
+    console.warn("Risk CSV not loaded; using doc-based heuristic.", e);
+    riskModel.setCombinationOverrides(null);
+    return 0;
   }
-
-  return clamp(Math.round(score), 1, 4);
-}
-
-function consequenceScoreFromDerived(derived) {
-  // Consequence of failure (CoF) proxy from diameter (+ tiny bump for long segments).
-  // Returns an integer in [1..4].
-  const diamMm = derived?.diamMm;
-  const lengthM = derived?.lengthM;
-
-  let score = 2;
-  if (diamMm == null) score = 2;
-  else if (diamMm <= 150) score = 1;
-  else if (diamMm <= 250) score = 2;
-  else if (diamMm <= 400) score = 3;
-  else score = 4;
-
-  if (typeof lengthM === "number" && Number.isFinite(lengthM)) {
-    if (lengthM >= 500) score += 1;
-  }
-
-  return clamp(Math.round(score), 1, 4);
-}
-
-function riskBinFromScores(pof, cof) {
-  const product = (pof ?? 2) * (cof ?? 2); // 1..16
-  if (product <= 4) return 1;
-  if (product <= 8) return 2;
-  if (product <= 12) return 3;
-  return 4;
 }
 
 function lineWidthForLevel(level, k) {
@@ -453,7 +414,7 @@ function renderLegend(labels, onToggle) {
     const swRisk = document.createElement("div");
     swRisk.className = "swatch";
     swRisk.style.borderTopWidth = "4px";
-    swRisk.style.borderTopColor = riskPalette()[3];
+    swRisk.style.borderTopColor = riskModel.riskPalette()[3];
     makeCheckbox({
       listEl: legendOverlayEl,
       label: "Risk",
@@ -466,7 +427,7 @@ function renderLegend(labels, onToggle) {
     const swCof = document.createElement("div");
     swCof.className = "swatch";
     swCof.style.borderTopWidth = "4px";
-    swCof.style.borderTopColor = consequencePalette()[3];
+    swCof.style.borderTopColor = riskModel.consequencePalette()[3];
     makeCheckbox({
       listEl: legendOverlayEl,
       label: "Consequence",
@@ -484,9 +445,16 @@ function renderLegend(labels, onToggle) {
   if (legendOverlayKeyEl) {
     legendOverlayKeyEl.innerHTML = "";
     if (filterState.overlay !== "none") {
-      const palette = filterState.overlay === "risk" ? riskPalette() : consequencePalette();
+      const palette =
+        filterState.overlay === "risk"
+          ? riskModel.riskPalette()
+          : riskModel.consequencePalette();
       for (let i = 0; i < 4; i++) {
-        makeKeyItem({ listEl: legendOverlayKeyEl, label: RISK_LABELS[i], color: palette[i] });
+        makeKeyItem({
+          listEl: legendOverlayKeyEl,
+          label: riskModel.riskLabels[i],
+          color: palette[i],
+        });
       }
     }
   }
@@ -636,25 +604,34 @@ function summarizeProperties(properties, labels) {
   const iy = parseInstallYear(properties.year);
   const age = ageYears(iy);
 
-  const derived = {
+  const matCode = normalizeMaterial(properties.material);
+  const statusInd = (properties.status_ind ?? "").toString();
+  const lengthM = Number.isFinite(Number(properties.length)) ? Number(properties.length) : null;
+
+  const materialRaw = (properties.material ?? "").toString().trim();
+  const diamRaw = (properties.diam ?? "").toString().trim();
+  const yearRaw = (properties.year ?? "").toString().trim();
+
+  const scored = riskModel.compute({
+    materialCode: matCode,
     diamMm,
-    diamBin: diameterBin(diamMm),
-    matCode: normalizeMaterial(properties.material),
-    ageBin: ageBin(age),
-    statusInd: (properties.status_ind ?? "").toString(),
-    lengthM: Number.isFinite(Number(properties.length)) ? Number(properties.length) : null,
-  };
-  const pof = pofScoreFromDerived(derived);
-  const cof = consequenceScoreFromDerived(derived);
-  const rbin = riskBinFromScores(pof, cof);
+    installYear: iy,
+    statusInd,
+    lengthM,
+    comboKeyParts: { materialRaw, diamRaw, yearRaw },
+  });
+  const { pof, cof, riskBin: rbin, riskClass, family, source } = scored;
 
   const lines = [];
   lines.push(`diam: ${diamMm ?? "Unknown"}${diamMm != null ? " mm" : ""}`);
   lines.push(`material: ${materialName}`);
   lines.push(`year: ${iy ?? "Unknown"}`);
   lines.push(`age: ${age ?? "Unknown"}${age != null ? " yrs" : ""}`);
-  lines.push(`risk: ${RISK_LABELS[rbin - 1]} (PoF ${pof} × CoF ${cof})`);
-  lines.push(`consequence: ${RISK_LABELS[cof - 1]} (${cof})`);
+  lines.push(`risk: ${riskModel.riskLabels[rbin - 1]} (PoF ${pof} × CoF ${cof})`);
+  if (riskClass) lines.push(`risk class (csv): ${riskClass}`);
+  if (family) lines.push(`risk family (csv): ${family}`);
+  lines.push(`consequence: ${riskModel.riskLabels[cof - 1]} (${cof})`);
+  lines.push(`risk source: ${source}`);
 
   // Add a couple extra fields if present.
   for (const k of ["status_ind", "p_zone", "length"]) {
@@ -803,11 +780,25 @@ function render(geojson, labels) {
       lengthM,
     };
 
-    const pof = pofScoreFromDerived(derived);
-    const cof = consequenceScoreFromDerived(derived);
+    const materialRaw = (props.material ?? "").toString().trim();
+    const diamRaw = (props.diam ?? "").toString().trim();
+    const yearRaw = (props.year ?? "").toString().trim();
+
+    const scored = riskModel.compute({
+      materialCode: derived.matCode,
+      diamMm: derived.diamMm,
+      installYear: derived.installYear,
+      statusInd: derived.statusInd,
+      lengthM: derived.lengthM,
+      comboKeyParts: { materialRaw, diamRaw, yearRaw },
+    });
+    const { pof, cof, riskBin, riskClass, family, source } = scored;
     derived.pof = pof;
     derived.cof = cof;
-    derived.riskBin = riskBinFromScores(pof, cof);
+    derived.riskBin = riskBin;
+    derived.riskClass = riskClass;
+    derived.riskFamily = family;
+    derived.riskSource = source;
     f._derived = derived;
   }
 
@@ -845,11 +836,11 @@ function render(geojson, labels) {
         const derived = d?._derived;
         if (styleMode === "risk") {
           const bin = clamp(Number(derived?.riskBin ?? 2), 1, 4);
-          return riskPalette()[bin - 1];
+          return riskModel.riskPalette()[bin - 1];
         }
         if (styleMode === "consequence") {
           const cof = clamp(Number(derived?.cof ?? 2), 1, 4);
-          return consequencePalette()[cof - 1];
+          return riskModel.consequencePalette()[cof - 1];
         }
 
         const matCode = derived?.matCode ?? normalizeMaterial(d?.properties?.material);
@@ -989,6 +980,7 @@ function render(geojson, labels) {
 async function main() {
   try {
     initLegendToggle();
+    await loadRiskOverridesCsv();
     const [geojson, labels] = await Promise.all([
       d3.json(geojsonUrl),
       d3.json(materialLabelsUrl).catch(() => ({})),

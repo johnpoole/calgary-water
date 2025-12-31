@@ -1,0 +1,42 @@
+Risk Assessment of North American Potable Water Main Pipe Materials
+This document summarizes the likelihood and consequence of failure for major potable water main pipe materials used in North America, including known vintage‑specific performance issues and typical service life expectations. The material is organized for use in water utility asset management and capital planning contexts.
+Cast Iron (CI)
+Likelihood of Failure:High. Brittle material prone to circumferential cracking and graphitic corrosion over time. Break likelihood increases significantly after ~50 years, especially in corrosive soils.
+Consequence of Failure:Moderate. Typically neighborhood‑scale flooding and outages. Pipe brittleness complicates repair.
+Historical Issues:• 1930s–1950s thin‑wall spun‑cast CI• 1940s–1960s Leadite joints linked to bell cracking• High failure frequency in aging systems
+Expected Service Life:50–100 years depending on soil and corrosion exposure.
+Ductile Iron (DI)
+Likelihood of Failure:Moderate overall, but High in corrosive soils without protection. Corrosion is primary failure mode.
+Consequence of Failure:Moderate. Often gradual leaks rather than brittle fractures.
+Historical Issues:• 1970s–1980s DI installed without polywrap shows accelerated corrosion• Performance strongly dependent on corrosion control practices
+Expected Service Life:75–100+ years with coatings, linings, and cathodic protection.
+PVC (Polyvinyl Chloride)
+Likelihood of Failure:Low. Lowest observed break frequency among common materials. No corrosion degradation.
+Consequence of Failure:Low to Moderate. Failures typically longitudinal splits or joint separations.
+Historical Issues:• Some 1970s brittle failures tied to resin/process variation• Manufacturing quality improved under AWWA C900
+Expected Service Life:50–100+ years under normal pressure and temperature cycling.
+Prestressed Concrete Cylinder Pipe (PCCP)
+Likelihood of Failure:Low frequency overall, but Elevated for certain vintages due to wire deterioration.
+Consequence of Failure:Very High. Large trunk mains; failures can be catastrophic.
+Historical Issues:• Highest risk: ~1970–1980 Class IV prestressing wire• Particularly noted in 1975–1978 installations• Many utilities use acoustic/electromagnetic monitoring
+Expected Service Life:70–100+ years where wire integrity remains intact. Reduced where significant wire loss exists.
+Steel (Welded Steel Pipe)
+Likelihood of Failure:Moderate. Corrosion‑driven failures where coatings/CP are absent or degraded.
+Consequence of Failure:High for large‑diameter transmission mains; Moderate for smaller lines.
+Historical Issues:• Older riveted and mid‑century coated pipes show localized corrosion• Modern epoxy‑coated and CP‑protected steel performs well
+Expected Service Life:75–100 years with effective corrosion protection.
+Asbestos Cement (AC / Transite)
+Likelihood of Failure:High in aging cohorts (>50 years). Brittle material with increasing break rates near end‑of‑life.
+Consequence of Failure:Low to Moderate hydraulically; higher repair cost due to hazardous material handling.
+Historical Issues:• Major installation era: 1940s–1960s• Many systems now experiencing accelerating break trends
+Expected Service Life:50–70 years on average (highly dependent on water chemistry).
+HDPE (High‑Density Polyethylene)
+Likelihood of Failure:Low. Non‑corroding, flexible, strong joint fusion where properly installed.
+Consequence of Failure:Low to Moderate. Most failures present as leaks rather than ruptures.
+Historical Issues:• Early PE grades had some oxidative aging concerns• Modern PE4710 formulations show strong long‑term performance
+Expected Service Life:50–100+ years in buried potable water service.
+Copper
+Likelihood of Failure:Variable. Low in favorable chemistry; High in soft/acidic or high‑chloride water (pinhole corrosion).
+Consequence of Failure:Low due to small diameters (typically service lines or very small mains).
+Historical Issues:• Pinhole leak clusters tied to water chemistry and stray current conditions
+Expected Service Life:50–70+ years in compatible environments; shorter in aggressive water conditions.

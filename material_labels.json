@@ -1,6 +1,8 @@
 {
   "PVC": "PVC (Polyvinyl chloride)",
   "CI": "Cast iron",
+  "YDI": "Yellow-Jacket Ductile Iron",
+  "PDI": "Protected Ductile Iron (lined/coated)",
   "DI": "Ductile iron",
   "ST": "Steel",
   "CON": "Concrete",
