@@ -24,7 +24,7 @@
         border-bottom: 1px solid #e5e7eb;
         display: flex;
         gap: 12px;
-        align-items: baseline;
+        align-items: center;
       }
 
       header h1 {
@@ -36,6 +36,7 @@
       header .meta {
         font-size: 12px;
         color: #6b7280;
+        flex: 1;
       }
 
       #map {
@@ -127,7 +128,47 @@
         border: 1px solid #e5e7eb;
         border-radius: 8px;
         padding: 10px;
-        z-index: 3;
+        /* Keep the legend above the inspector on small screens. */
+        z-index: 4;
+      }
+
+      .legend .legend-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .legend .legend-toggle {
+        margin-left: auto;
+        font-size: 12px;
+        padding: 6px 10px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #111827;
+      }
+
+      .legend .legend-toggle:active {
+        background: #f9fafb;
+      }
+
+      .legend.is-collapsed {
+        width: auto;
+        max-height: none;
+        overflow: hidden;
+        padding: 8px;
+      }
+
+      .legend.is-collapsed .legend-body {
+        display: none;
+      }
+
+      /* On small screens, start with the legend collapsed so the map has room.
+         The toggle remains on the legend itself. */
+      @media (max-width: 640px) {
+        .legend {
+          max-height: min(58vh, 540px);
+        }
       }
 
       .legend h2 {
@@ -221,15 +262,22 @@
         <div id="tiles" aria-hidden="true"></div>
         <div class="tooltip" id="tooltip" aria-hidden="true"></div>
         <div class="legend" id="legend">
-          <h2>Symbology</h2>
-          <div class="sub">Basemap</div>
-          <ul id="legendBasemap"></ul>
-          <div class="sub">Diameter (mm)</div>
-          <ul id="legendDiameter"></ul>
-          <div class="sub">Age</div>
-          <ul id="legendAge"></ul>
-          <div class="sub">Material (top)</div>
-          <ul id="legendMaterial"></ul>
+          <div class="legend-header">
+            <h2>Legend</h2>
+            <button id="legendToggle" class="legend-toggle" type="button" aria-controls="legendBody" aria-expanded="true">
+              Hide
+            </button>
+          </div>
+          <div class="legend-body" id="legendBody">
+            <div class="sub">Basemap</div>
+            <ul id="legendBasemap"></ul>
+            <div class="sub">Diameter (mm)</div>
+            <ul id="legendDiameter"></ul>
+            <div class="sub">Age</div>
+            <ul id="legendAge"></ul>
+            <div class="sub">Material (top)</div>
+            <ul id="legendMaterial"></ul>
+          </div>
         </div>
         <div class="inspector" id="inspector">
           <h2>Feature Inspector</h2>

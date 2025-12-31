@@ -7,9 +7,35 @@ const legendAgeEl = document.getElementById("legendAge");
 const legendMaterialEl = document.getElementById("legendMaterial");
 const legendBasemapEl = document.getElementById("legendBasemap");
 const tilesEl = document.getElementById("tiles");
+const legendEl = document.getElementById("legend");
+const legendToggleEl = document.getElementById("legendToggle");
+const legendBodyEl = document.getElementById("legendBody");
 
 const geojsonUrl = "./data/Public_Water_Main_20251231.geojson";
 const materialLabelsUrl = "./material_labels.json";
+
+function setLegendCollapsed(isCollapsed) {
+  if (!legendEl || !legendToggleEl) return;
+  legendEl.classList.toggle("is-collapsed", !!isCollapsed);
+  legendToggleEl.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+  legendToggleEl.textContent = isCollapsed ? "Show" : "Hide";
+  if (legendBodyEl) legendBodyEl.setAttribute("aria-hidden", isCollapsed ? "true" : "false");
+}
+
+function initLegendToggle() {
+  if (!legendEl || !legendToggleEl) return;
+
+  const isSmall = window.matchMedia?.("(max-width: 640px)")?.matches ?? false;
+  // On mobile: start collapsed. On desktop: start expanded.
+  setLegendCollapsed(!!isSmall);
+
+  legendToggleEl.addEventListener("click", () => {
+    const isCollapsed =
+      legendToggleEl.getAttribute("aria-expanded") === "false" ||
+      legendEl.classList.contains("is-collapsed");
+    setLegendCollapsed(!isCollapsed);
+  });
+}
 
 // URL state (shareable view): stores zoom/pan + current filters in the query string.
 // Example:
@@ -778,6 +804,7 @@ function render(geojson, labels) {
 
 async function main() {
   try {
+    initLegendToggle();
     const [geojson, labels] = await Promise.all([
       d3.json(geojsonUrl),
       d3.json(materialLabelsUrl).catch(() => ({})),
