@@ -7,6 +7,7 @@ const legendAgeEl = document.getElementById("legendAge");
 const legendMaterialEl = document.getElementById("legendMaterial");
 
 const geojsonUrl = "./data/Public_Water_Main_20251231.geojson";
+const materialLabelsUrl = "./material_labels.json";
 
 // This repo's GeoJSON uses these keys (confirmed via profile_geojson.py):
 // - diameter: properties.diam (string)
@@ -36,6 +37,13 @@ function normalizeMaterial(raw) {
   const s = (raw ?? "").toString().trim().toUpperCase();
   if (!s) return "Unknown";
   return s;
+}
+
+function materialLabel(code, labels) {
+  if (!code) return "Unknown";
+  const key = code.toString().trim().toUpperCase();
+  const label = labels?.[key];
+  return label ?? key;
 }
 
 function parseDiameterMm(raw) {
@@ -77,27 +85,26 @@ function ageBin(age) {
   return "≥80";
 }
 
-function dashForAgeBin(bin, k) {
-  // Keep dash lengths roughly constant in screen space even while zooming,
-  // because the layer is transformed by d3-zoom.
-  const s = Math.max(0.35, 1 / Math.max(1, k));
-  const dash = (a, b) => `${(a * s).toFixed(2)},${(b * s).toFixed(2)}`;
-  const dashDot = (a, b, c, d) =>
-    `${(a * s).toFixed(2)},${(b * s).toFixed(2)},${(c * s).toFixed(2)},${
-      (d * s).toFixed(2)
-    }`;
+function dashForAgeBin(bin) {
+  // NOTE: The paths use `vector-effect: non-scaling-stroke`, which also prevents
+  // stroke dash patterns from scaling with zoom transforms. Therefore we should
+  // NOT apply any 1/k scaling here; doing so makes dashes look solid when zoomed in.
+  const dash = (a, b) => `${a},${b}`;
+  const dashDot = (a, b, c, d) => `${a},${b},${c},${d}`;
 
   switch (bin) {
     case "<20":
       return null; // solid
     case "20–50":
-      return dash(8, 4); // dashed
+      return dash(10, 6); // dashed
     case "50–80":
-      return dash(2, 4); // dotted-ish
+      // Use a very short dash with round linecaps to read as dots.
+      return dash(0.8, 6);
     case "≥80":
-      return dashDot(10, 4, 2, 4); // dash-dot
+      // Dash-dot: long dash, gap, dot, gap
+      return dashDot(10, 6, 0.8, 6);
     default:
-      return dash(1, 6); // sparse dots for unknown
+      return dash(2, 10); // sparse dashes for unknown
   }
 }
 
@@ -132,7 +139,7 @@ function minDiameterForZoomK(k) {
   return 0;
 }
 
-function renderLegend() {
+function renderLegend(labels) {
   if (legendDiameterEl) {
     legendDiameterEl.innerHTML = "";
     const diaItems = [
@@ -178,7 +185,7 @@ function renderLegend() {
       line.setAttribute("stroke", "#111827");
       line.setAttribute("stroke-width", "3");
       line.setAttribute("stroke-linecap", "round");
-      const dash = dashForAgeBin(it.bin, 1);
+      const dash = dashForAgeBin(it.bin);
       if (dash) line.setAttribute("stroke-dasharray", dash);
       svg.appendChild(line);
       li.appendChild(svg);
@@ -198,7 +205,9 @@ function renderLegend() {
       sw.style.borderTopColor =
         m === "Other" ? "#9ca3af" : m === "Unknown" ? "#6b7280" : colorForMaterial(m);
       li.appendChild(sw);
-      li.appendChild(document.createTextNode(m));
+      const label =
+        m === "Other" || m === "Unknown" ? m : materialLabel(m, labels);
+      li.appendChild(document.createTextNode(label));
       legendMaterialEl.appendChild(li);
     }
   }
@@ -228,17 +237,18 @@ function createSvg(width, height) {
   return svg;
 }
 
-function summarizeProperties(properties) {
+function summarizeProperties(properties, labels) {
   if (!properties || typeof properties !== "object") return "(no properties)";
 
   const diamMm = parseDiameterMm(properties.diam);
   const material = normalizeMaterial(properties.material);
+  const materialName = materialLabel(material, labels);
   const iy = parseInstallYear(properties.year);
   const age = ageYears(iy);
 
   const lines = [];
   lines.push(`diam: ${diamMm ?? "Unknown"}${diamMm != null ? " mm" : ""}`);
-  lines.push(`material: ${material}`);
+  lines.push(`material: ${materialName}`);
   lines.push(`year: ${iy ?? "Unknown"}`);
   lines.push(`age: ${age ?? "Unknown"}${age != null ? " yrs" : ""}`);
 
@@ -265,7 +275,7 @@ function setTooltip(text, x, y) {
   tooltipEl.style.transform = `translate(${x + 12}px, ${y + 12}px)`;
 }
 
-function render(geojson) {
+function render(geojson, labels) {
   container.querySelectorAll("svg").forEach((n) => n.remove());
 
   const { width, height } = container.getBoundingClientRect();
@@ -280,7 +290,7 @@ function render(geojson) {
   // Fit projection to data.
   projection.fitSize([w, h], geojson);
 
-  renderLegend();
+  renderLegend(labels);
 
   const g = svg.append("g").attr("class", "layer");
 
@@ -307,9 +317,23 @@ function render(geojson) {
       return;
     }
 
+    const matCode = normalizeMaterial(feature?.properties?.material);
+    const matName = materialLabel(matCode, labels);
+    const diamMm = parseDiameterMm(feature?.properties?.diam);
+    const iy = parseInstallYear(feature?.properties?.year);
+    const a = ageYears(iy);
+
     const payload = {
       id: feature.id ?? null,
       geometryType: feature.geometry?.type ?? null,
+      derived: {
+        diameterMm: diamMm,
+        materialCode: matCode,
+        materialName: matName,
+        installYear: iy,
+        ageYears: a,
+        ageBin: ageBin(a),
+      },
       properties: feature.properties ?? {},
     };
 
@@ -330,7 +354,7 @@ function render(geojson) {
     })
     .on("mousemove", function (event, d) {
       const [mx, my] = d3.pointer(event, container);
-      const text = summarizeProperties(d?.properties);
+      const text = summarizeProperties(d?.properties, labels);
       setTooltip(text, mx, my);
     })
     .on("mouseleave", function () {
@@ -364,7 +388,7 @@ function render(geojson) {
       .attr("stroke-dasharray", (d) => {
         const iy = parseInstallYear(d?.properties?.year);
         const bin = ageBin(ageYears(iy));
-        const dash = dashForAgeBin(bin, k);
+        const dash = dashForAgeBin(bin);
         return dash ?? null;
       })
       .attr("stroke-width", (d) => {
@@ -391,15 +415,18 @@ function render(geojson) {
 
 async function main() {
   try {
-    const geojson = await d3.json(geojsonUrl);
+    const [geojson, labels] = await Promise.all([
+      d3.json(geojsonUrl),
+      d3.json(materialLabelsUrl).catch(() => ({})),
+    ]);
     clearStatus();
-    render(geojson);
+    render(geojson, labels);
 
     // Re-render on resize to keep it fitting the viewport.
     let resizeRaf = null;
     window.addEventListener("resize", () => {
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
-      resizeRaf = requestAnimationFrame(() => render(geojson));
+      resizeRaf = requestAnimationFrame(() => render(geojson, labels));
     });
   } catch (err) {
     showError(err);

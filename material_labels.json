@@ -1,0 +1,10 @@
+{
+  "PVC": "PVC (Polyvinyl chloride)",
+  "CI": "Cast iron",
+  "DI": "Ductile iron",
+  "ST": "Steel",
+  "CON": "Concrete",
+  "AC": "Asbestos cement",
+  "PE": "Polyethylene",
+  "CU": "Copper"
+}
