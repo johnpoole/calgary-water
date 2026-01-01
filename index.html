@@ -146,6 +146,31 @@
         z-index: 3;
       }
 
+      .inspector[hidden] {
+        display: none;
+      }
+
+      .inspector .inspector-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .inspector .inspector-close {
+        margin-left: auto;
+        font-size: 12px;
+        padding: 6px 10px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #111827;
+      }
+
+      .inspector .inspector-close:active {
+        background: #f9fafb;
+      }
+
       .legend {
         position: absolute;
         left: 10px;
@@ -358,6 +383,13 @@
         <div class="loading" id="status">Loading GeoJSON…</div>
         <div id="tiles" aria-hidden="true"></div>
         <div class="tooltip" id="tooltip" aria-hidden="true"></div>
+        <div class="inspector" id="inspector" hidden>
+          <div class="inspector-header">
+            <h2>Selected main</h2>
+            <button id="inspectorClose" class="inspector-close" type="button">Close</button>
+          </div>
+          <pre id="inspectorPre"></pre>
+        </div>
         <div class="help-panel" id="helpPanel" hidden>
           <div class="help-header">
             <h2>How “Risk” is calculated</h2>
@@ -380,7 +412,7 @@
               PCCP/PCI manufactured 1972–1978 is highest, and other PCCP/PCI in 1970–1980 is elevated).
             </li>
             <li>
-              Adjusts for status indicators that suggest abandoned/out-of-service.
+              Mains marked abandoned/out-of-service are excluded from the map.
             </li>
           </ul>
 
@@ -396,10 +428,10 @@
             <li>Computed from the PoF×CoF product (higher product → higher risk class).</li>
           </ul>
 
-          <p><strong>4) Major-road uplift</strong></p>
+          <p><strong>4) Major-road adjustment</strong></p>
           <ul>
             <li>
-              If a main is close to a classified major road (precomputed offline), an uplift (e.g. +0.5 to +2.0)
+              If a main is close to a classified major road (precomputed offline), an adjustment (e.g. +0.5 to +2.0)
               is added to the PoF float score for eligible materials (and old PVC).
             </li>
           </ul>
@@ -415,16 +447,27 @@
             </li>
           </ul>
 
-          <p><strong>Further reading</strong></p>
+          <p><strong>Material & vintage sources</strong></p>
           <ul>
-            <li>
-              Material & vintage sources:
-              <a href="./docs/material_vintage_sources.md" target="_blank" rel="noopener">material_vintage_sources.md</a>
-            </li>
-            <li>
-              Traffic loading sources:
-              <a href="./docs/traffic_loading_sources.md" target="_blank" rel="noopener">traffic_loading_sources.md</a>
-            </li>
+            <li><a href="https://digitalcommons.usu.edu/mae_facpub/174/" target="_blank" rel="noopener">https://digitalcommons.usu.edu/mae_facpub/174/</a></li>
+            <li><a href="https://ipexna.com/wp-content/uploads/2024/03/study-caen-ipex-water-main-break-rates-in-the-usa-and-canada.pdf" target="_blank" rel="noopener">https://ipexna.com/wp-content/uploads/2024/03/study-caen-ipex-water-main-break-rates-in-the-usa-and-canada.pdf</a></li>
+            <li><a href="https://ontariowater.ca/assessing-aging-ac-pipe-insights-from-the-brabant-water-pilot-project/" target="_blank" rel="noopener">https://ontariowater.ca/assessing-aging-ac-pipe-insights-from-the-brabant-water-pilot-project/</a></li>
+            <li><a href="https://www.uni-bell.org/Portals/0/ResourceFile/pvc-pipe-longevity-report.pdf" target="_blank" rel="noopener">https://www.uni-bell.org/Portals/0/ResourceFile/pvc-pipe-longevity-report.pdf</a></li>
+            <li><a href="https://www.uni-bell.org/Portals/0/ResourceFile/water-main-break-rates-in-the-usa-and-canada-a-comprehensive-study-march-2018.pdf" target="_blank" rel="noopener">https://www.uni-bell.org/Portals/0/ResourceFile/water-main-break-rates-in-the-usa-and-canada-a-comprehensive-study-march-2018.pdf</a></li>
+            <li><a href="https://www.fwrj.com/techarticles/1212%20tech%201.pdf" target="_blank" rel="noopener">https://www.fwrj.com/techarticles/1212%20tech%201.pdf</a></li>
+            <li><a href="https://mcua.com/about-us/applications-forms-2/case-studies/31-pccp-case-study/file" target="_blank" rel="noopener">https://mcua.com/about-us/applications-forms-2/case-studies/31-pccp-case-study/file</a></li>
+            <li><a href="https://www.xylem.com/en-ca/the-main-line/assessment-services/pccp-is-never-too-young-or-old-for-a-check-up/" target="_blank" rel="noopener">https://www.xylem.com/en-ca/the-main-line/assessment-services/pccp-is-never-too-young-or-old-for-a-check-up/</a></li>
+            <li><a href="https://www.yumpu.com/en/document/view/30746727/failure-of-prestressed-concrete-cylinder-pipe-water-research-" target="_blank" rel="noopener">https://www.yumpu.com/en/document/view/30746727/failure-of-prestressed-concrete-cylinder-pipe-water-research-</a></li>
+            <li><a href="https://govmarketnews.com/study-finds-consistent-break-rates-with-aging-water-pipes/" target="_blank" rel="noopener">https://govmarketnews.com/study-finds-consistent-break-rates-with-aging-water-pipes/</a></li>
+          </ul>
+
+          <p><strong>Traffic loading sources</strong></p>
+          <ul>
+            <li><a href="https://www.sciencedirect.com/science/article/abs/pii/S0886779822001031" target="_blank" rel="noopener">https://www.sciencedirect.com/science/article/abs/pii/S0886779822001031</a></li>
+            <li><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC12551904/" target="_blank" rel="noopener">https://pmc.ncbi.nlm.nih.gov/articles/PMC12551904/</a></li>
+            <li><a href="https://www.mdpi.com/2073-4441/10/8/1086" target="_blank" rel="noopener">https://www.mdpi.com/2073-4441/10/8/1086</a></li>
+            <li><a href="https://nrc-publications.canada.ca/eng/view/accepted/?id=b2c5934a-3fec-4c31-95ff-cd85ee04dd77" target="_blank" rel="noopener">https://nrc-publications.canada.ca/eng/view/accepted/?id=b2c5934a-3fec-4c31-95ff-cd85ee04dd77</a></li>
+            <li><a href="https://par.nsf.gov/servlets/purl/10354626" target="_blank" rel="noopener">https://par.nsf.gov/servlets/purl/10354626</a></li>
           </ul>
         </div>
         <div class="legend" id="legend">
