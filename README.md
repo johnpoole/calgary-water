@@ -14,6 +14,16 @@ The legend includes a **Style** selector for **Risk** and **Consequence**.
 
 These scores are derived from the available fields (e.g., install year / material / diameter) using the qualitative guidance in [docs/Pipe_Risk_Assessment_Water_Mains_North_America.docx](docs/Pipe_Risk_Assessment_Water_Mains_North_America.docx) (implemented in [risk_consequence.js](risk_consequence.js)).
 
+The map does not load any external scoring CSV. If you want a tabular artifact of what the current heuristics would assign for each distinct (material, diam, year) combination in the dataset, generate it with:
+
+```bash
+python tools/generate_risk_csv_from_docs.py
+```
+
+This writes:
+
+- `docs/distinct_material_diameter_year_with_risk.csv` (for review / downstream analysis only)
+
 ## Style (Break Density)
 
 There is also a **Break density** style that colors mains by the number of breaks per km of pipe in the same `p_zone`.

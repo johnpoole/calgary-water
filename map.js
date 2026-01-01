@@ -20,7 +20,6 @@ const helpCloseEl = document.getElementById("helpClose");
 
 const geojsonUrl = "./data/Public_Water_Main_20251231.geojson";
 const materialLabelsUrl = "./material_labels.json";
-const riskCsvUrl = "./docs/distinct_material_diameter_year_with_risk.csv";
 const breakDensityUrl = "./docs/break_density_by_p_zone.json";
 const roadProximityUrl = "./docs/road_proximity_by_main.json";
 const roadsUrl = "./data/Major_Road_Network_20251231.geojson";
@@ -488,45 +487,6 @@ async function loadBreakDensity() {
   }
 }
 
-async function loadRiskOverridesCsv() {
-  // Expected columns: material, diam, year, LoF, CoF, RiskClass, family
-  try {
-    const res = await fetch(riskCsvUrl, { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-    const text = await res.text();
-    const rows = d3.csvParse(text);
-    const map = new Map();
-
-    const toNum = (v) => {
-      const n = Number((v ?? "").toString().trim());
-      return Number.isFinite(n) ? n : null;
-    };
-
-    for (const r of rows) {
-      const materialRaw = (r.material ?? "").toString().trim().toUpperCase();
-      const diamRaw = (r.diam ?? "").toString().trim();
-      const yearRaw = (r.year ?? "").toString().trim();
-      if (!materialRaw || !diamRaw || !yearRaw) continue;
-
-      const key = `${materialRaw}|${diamRaw}|${yearRaw}`;
-      map.set(key, {
-        LoF: toNum(r.LoF),
-        CoF: toNum(r.CoF),
-        RiskClass: (r.RiskClass ?? "").toString().trim(),
-        family: (r.family ?? "").toString().trim(),
-      });
-    }
-
-    riskModel.setCombinationOverrides(map);
-    return map.size;
-  } catch (e) {
-    // If the CSV isn't present/valid, keep doc-based scoring.
-    console.warn("Risk CSV not loaded; using doc-based heuristic.", e);
-    riskModel.setCombinationOverrides(null);
-    return 0;
-  }
-}
-
 function lineWidthForLevel(level, k, maxLevel = 4) {
   // Used for Risk/Consequence styling modes.
   const ml = clamp(Number(maxLevel ?? 4), 2, 12);
@@ -974,24 +934,19 @@ function summarizeProperties(properties, labels) {
   const lengthM = Number.isFinite(Number(properties.length)) ? Number(properties.length) : null;
   const ageYearsValue = age;
 
-  const materialRaw = (properties.material ?? "").toString().trim();
-  const diamRaw = (properties.diam ?? "").toString().trim();
-  const yearRaw = (properties.year ?? "").toString().trim();
-
   const scored = riskModel.compute({
     materialCode: matCode,
     diamMm,
     installYear: iy,
     statusInd,
     lengthM,
-    comboKeyParts: { materialRaw, diamRaw, yearRaw },
   });
   const gid = (properties.globalid ?? "").toString().trim();
   const expRaw = gid ? roadExposureByGlobalId.get(gid) : null;
   const roadEligible = isRoadUpliftEligible({ materialCode: matCode, ageYears: ageYearsValue });
   const derivedForRoads = { globalid: gid, matCode, ageYears: ageYearsValue };
   const adj = applyMajorRoadAdjustment(scored, derivedForRoads);
-  const { pof, cof, riskBin: rbin, riskClass, family, source, pofSource, cofSource, pofSizeUplift } = adj;
+  const { pof, cof, riskBin: rbin, source, pofSource, cofSource, pofSizeUplift } = adj;
 
   const lines = [];
   lines.push(`diam: ${diamMm ?? "Unknown"}${diamMm != null ? " mm" : ""}`);
@@ -999,8 +954,6 @@ function summarizeProperties(properties, labels) {
   lines.push(`year: ${iy ?? "Unknown"}`);
   lines.push(`age: ${age ?? "Unknown"}${age != null ? " yrs" : ""}`);
   lines.push(`risk: ${riskModel.riskLabels[rbin - 1]} (PoF ${pof} × CoF ${cof})`);
-  if (riskClass) lines.push(`risk class (csv): ${riskClass}`);
-  if (family) lines.push(`risk family (csv): ${family}`);
   lines.push(`consequence: ${riskModel.riskLabels[cof - 1]} (${cof})`);
   {
     const ps = (pofSource ?? "").toString().trim() || null;
@@ -1253,20 +1206,15 @@ function render(geojson, labels) {
       globalid,
     };
 
-    const materialRaw = (props.material ?? "").toString().trim();
-    const diamRaw = (props.diam ?? "").toString().trim();
-    const yearRaw = (props.year ?? "").toString().trim();
-
     const scored = riskModel.compute({
       materialCode: derived.matCode,
       diamMm: derived.diamMm,
       installYear: derived.installYear,
       statusInd: derived.statusInd,
       lengthM: derived.lengthM,
-      comboKeyParts: { materialRaw, diamRaw, yearRaw },
     });
     const adj = applyMajorRoadAdjustment(scored, derived);
-    const { pof, cof, riskBin, riskClass, family, source, pofSource, cofSource, pofSizeUplift } = adj;
+    const { pof, cof, riskBin, source, pofSource, cofSource, pofSizeUplift } = adj;
     derived.pof = pof;
     derived.cof = cof;
     derived.pofFloat =
@@ -1281,8 +1229,6 @@ function render(geojson, labels) {
         ? derived.pofFloat * derived.cofFloat
         : null;
     derived.riskBin = riskBin;
-    derived.riskClass = riskClass;
-    derived.riskFamily = family;
     derived.riskSource = source;
     derived.pofSource = (pofSource ?? "").toString().trim() || null;
     derived.cofSource = (cofSource ?? "").toString().trim() || null;
@@ -1372,8 +1318,6 @@ function render(geojson, labels) {
               ? riskModel.riskLabels[Number(derived.riskBin) - 1]
               : null,
           source: derived.riskSource ?? null,
-          csvRiskClass: derived.riskClass ?? null,
-          csvFamily: derived.riskFamily ?? null,
         },
         roads: {
           buffer_m: roadExposureBufferM,
@@ -1801,7 +1745,6 @@ async function main() {
     initHelpPanel();
     initLegendToggle();
     await Promise.all([
-      loadRiskOverridesCsv(),
       loadBreakDensity(),
       loadRoadProximity(),
       loadRoadsLayer(),

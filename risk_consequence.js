@@ -2,7 +2,6 @@ export class RiskConsequenceModel {
   constructor({ currentYear = new Date().getFullYear() } = {}) {
     this.currentYear = currentYear;
     this.riskLabels = ["Low", "Medium", "High", "Very High"];
-    this._comboOverrides = null;
   }
 
   clamp(n, lo, hi) {
@@ -169,21 +168,9 @@ export class RiskConsequenceModel {
     return 4;
   }
 
-  setCombinationOverrides(map) {
-    // Map key: `${MATERIAL}|${DIAM}|${YEAR}` (material uppercased; diam/year trimmed).
-    // Value: { LoF:number|null, CoF:number|null, RiskClass?:string, family?:string }
-    this._comboOverrides = map ?? null;
-  }
-
-  _makeComboKey(materialRaw, diamRaw, yearRaw) {
-    const m = (materialRaw ?? "").toString().trim().toUpperCase();
-    const d = (diamRaw ?? "").toString().trim();
-    const y = (yearRaw ?? "").toString().trim();
-    return `${m}|${d}|${y}`;
-  }
-
   scoreFromFloat01to4(x) {
-    // CSV has LoF/CoF like 1.5, 2.5, 4.5, 5.0. Collapse to 1..4.
+    // Convert a 1..~5 float score (e.g., road uplift adds 0.5 increments)
+    // into our 1..4 discrete level.
     if (typeof x !== "number" || !Number.isFinite(x)) return null;
     if (x <= 2.0) return 1;
     if (x <= 3.0) return 2;
@@ -191,42 +178,7 @@ export class RiskConsequenceModel {
     return 4;
   }
 
-  compute({ materialCode, diamMm, installYear, statusInd, lengthM, comboKeyParts } = {}) {
-    // If provided, prefer CSV overrides keyed by raw (material, diam, year) combination.
-    // comboKeyParts: { materialRaw, diamRaw, yearRaw }
-    if (this._comboOverrides && comboKeyParts) {
-      const key = this._makeComboKey(
-        comboKeyParts.materialRaw,
-        comboKeyParts.diamRaw,
-        comboKeyParts.yearRaw
-      );
-      const o = this._comboOverrides.get(key);
-      if (o) {
-        const pof = this.scoreFromFloat01to4(o.LoF);
-        const cof = this.scoreFromFloat01to4(o.CoF);
-        const pofFinal = pof ?? this.pofScoreFrom({ materialCode, installYear, statusInd, diamMm });
-        const cofFinal = cof ?? this.consequenceScoreFrom({ materialCode, diamMm, lengthM });
-        const riskBin = this.riskBinFromScores(pofFinal, cofFinal);
-        const pofSource = pof != null ? "csv" : "doc";
-        const cofSource = cof != null ? "csv" : "doc";
-        const source = pofSource === "csv" && cofSource === "csv" ? "csv" : pofSource === "doc" && cofSource === "doc" ? "doc" : "mix";
-        const pofSizeUplift = pofSource === "doc" ? this.pofSizeUpliftFrom({ materialCode, diamMm }) : null;
-        return {
-          pof: pofFinal,
-          cof: cofFinal,
-          pofFloat: typeof o.LoF === "number" && Number.isFinite(o.LoF) ? o.LoF : pofFinal,
-          cofFloat: typeof o.CoF === "number" && Number.isFinite(o.CoF) ? o.CoF : cofFinal,
-          riskBin,
-          riskClass: (o.RiskClass ?? "").toString().trim() || null,
-          family: (o.family ?? "").toString().trim() || null,
-          source,
-          pofSource,
-          cofSource,
-          pofSizeUplift,
-        };
-      }
-    }
-
+  compute({ materialCode, diamMm, installYear, statusInd, lengthM } = {}) {
     const pof = this.pofScoreFrom({ materialCode, installYear, statusInd, diamMm });
     const cof = this.consequenceScoreFrom({ materialCode, diamMm, lengthM });
     const riskBin = this.riskBinFromScores(pof, cof);
@@ -236,8 +188,6 @@ export class RiskConsequenceModel {
       pofFloat: pof,
       cofFloat: cof,
       riskBin,
-      riskClass: null,
-      family: null,
       source: "doc",
       pofSource: "doc",
       cofSource: "doc",
