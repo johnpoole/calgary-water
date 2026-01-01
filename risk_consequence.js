@@ -80,22 +80,22 @@ export class RiskConsequenceModel {
 
     let score = baseByMaterial.get(mat) ?? 2;
 
-    // Age/vintage adjustments from the doc text.
+    // Age/vintage adjustments (explicit ranges).
+    // - CI & AC older than 50 years: elevated likelihood.
+    // - AC near/over 50 years: treat as approaching end-of-life (stronger bump).
     if (typeof age === "number" && Number.isFinite(age)) {
-      if (mat === "CI" && age >= 50) score += 1;
-      if (mat === "AC" && age >= 50) score += 1;
-
-      // DI generally performs well; bump only at older ages.
-      if ((mat === "DI" || mat === "PDI" || mat === "YDI") && age >= 75) score += 1;
-
-      // Copper is chemistry dependent; lightly increase at older ages.
-      if (mat === "CU" && age >= 70) score += 1;
+      if (mat === "CI" && age > 50) score += 1;
+      if (mat === "AC" && age > 50) score += 2;
     }
 
-    // PCCP vintage-specific risk: 1970–1980 elevated, 1975–1978 highest.
+    // PCCP / PCI vintage-specific likelihood.
+    // - 1972–1978: highest likelihood.
+    // - Other 1970–1980: elevated likelihood.
+    // Note: we do not have a reliable per-segment "Class IV wire" flag in the dataset,
+    // so installation year is used as the proxy for these published vintage ranges.
     if (iy != null && (mat === "PCI" || mat === "PCCP")) {
-      if (iy >= 1970 && iy <= 1980) score += 1;
-      if (iy >= 1975 && iy <= 1978) score += 1;
+      if (iy >= 1972 && iy <= 1978) score = Math.max(score, 4);
+      else if (iy >= 1970 && iy <= 1980) score = Math.max(score, 3);
     }
 
     // Status adjustment: if status indicates out-of-service/abandoned/etc.
