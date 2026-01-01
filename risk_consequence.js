@@ -59,118 +59,131 @@ export class RiskConsequenceModel {
     return a >= 0 ? a : null;
   }
 
-  pofSizeUpliftFrom({ materialCode, diamMm } = {}) {
-    // Conservative size effect: smaller distribution-size metallic/brittle mains
-    // experience higher observed break rates than larger diameters.
-    // Returns a float uplift in the same 1..4 scale used before rounding.
+  pofDiameterAdjustmentFrom({ materialCode, diamMm } = {}) {
+    // Doc-aligned, conservative diameter effect: distribution-size metallic/brittle
+    // mains break more often than large transmission mains.
+    // Returns a float adjustment in the same 1..4 scoring space (pre-round).
     const mat = this.normalizeMaterial(materialCode);
     if (typeof diamMm !== "number" || !Number.isFinite(diamMm)) return 0;
-    const sizeSensitive =
+
+    const diameterSensitive =
+      mat === "CI" ||
+      mat === "AC" ||
       mat === "DI" ||
       mat === "PDI" ||
       mat === "YDI" ||
       mat === "ST" ||
-      mat === "STEEL" ||
-      mat === "CI" ||
-      mat === "AC";
-    if (!sizeSensitive) return 0;
+      mat === "STEEL";
+    if (!diameterSensitive) return 0;
+
     if (diamMm <= 150) return 1.0;
     if (diamMm <= 305) return 0.5;
     return 0;
   }
 
-  pofScoreFrom({ materialCode, installYear, diamMm } = {}) {
-    // PoF proxy based on the qualitative guidance in
-    // docs/Pipe_Risk_Assessment_Water_Mains_North_America.docx.
+  pofMaterialBaseFrom({ materialCode } = {}) {
+    // Based on docs/Pipe_Risk_Assessment_Water_Mains_North_America.txt
+    // Levels: 1=Low, 2=Moderate, 3=High, 4=Very High
     const mat = this.normalizeMaterial(materialCode);
-    const iy = installYear ?? null;
+
+    if (mat === "PVC" || mat === "PE" || mat === "HDPE") return 1;
+    if (mat === "PCCP" || mat === "PCI") return 1;
+
+    if (mat === "DI" || mat === "PDI" || mat === "YDI") return 2;
+    if (mat === "ST" || mat === "STEEL") return 2;
+    if (mat === "CU") return 2;
+
+    if (mat === "CI") return 3;
+    if (mat === "AC") return 3;
+
+    return 2;
+  }
+
+  pofAgeAdjustmentFrom({ materialCode, ageYears } = {}) {
+    // Based on docs/Pipe_Risk_Assessment_Water_Mains_North_America.txt
+    const mat = this.normalizeMaterial(materialCode);
+    if (typeof ageYears !== "number" || !Number.isFinite(ageYears)) return 0;
+
+    // CI and AC show materially higher break likelihood in older cohorts.
+    if (mat === "CI" && ageYears > 50) return 1;
+    if (mat === "AC" && ageYears > 50) return 1;
+
+    return 0;
+  }
+
+  pofVintageOverrideFrom({ materialCode, installYear } = {}) {
+    // Based on docs/Pipe_Risk_Assessment_Water_Mains_North_America.txt
+    // PCCP vintage: elevated in ~1970–1980, with the most problematic cohort
+    // particularly noted in 1975–1978.
+    const mat = this.normalizeMaterial(materialCode);
+    const y = typeof installYear === "number" && Number.isFinite(installYear) ? installYear : null;
+    if (y == null) return null;
+    if (!(mat === "PCCP" || mat === "PCI")) return null;
+
+    if (y >= 1975 && y <= 1978) return 4;
+    if (y >= 1970 && y <= 1980) return 3;
+    return null;
+  }
+
+  scoreFromFloat1to4(x) {
+    if (typeof x !== "number" || !Number.isFinite(x)) return null;
+    return this.clamp(Math.round(x), 1, 4);
+  }
+
+  pofScoreFrom({ materialCode, installYear, diamMm } = {}) {
+    const mat = this.normalizeMaterial(materialCode);
+    const iy = typeof installYear === "number" && Number.isFinite(installYear) ? installYear : null;
     const age = this.ageYears(iy);
-    // Base likelihood by material class (1..4)
-    // Low: PVC/PE/HDPE/PCCP; Moderate: DI/Steel; High: CI/AC.
-    const baseByMaterial = new Map([
-      ["PVC", 1],
-      ["PE", 1],
-      ["HDPE", 1],
-      ["DI", 2],
-      ["PDI", 2],
-      ["YDI", 2],
-      ["ST", 2],
-      ["STEEL", 2],
-      ["CI", 3],
-      ["AC", 3],
-      // This dataset uses PCI for PCCP in places; treat it as PCCP.
-      // PCCP failures are often driven by age-related distress (wire break, corrosion,
-      // coating loss) and can become more likely as the asset ages; we therefore do
-      // not treat PCCP as "low likelihood" by default.
-      ["PCI", 2],
-      ["PCCP", 2],
-      ["CU", 2],
-      ["COPPER", 2],
-    ]);
 
-    let score = baseByMaterial.get(mat) ?? 2;
-
-    // Size effect (conservative): break rates generally decrease as diameter increases.
-    // Source alignment: USU/Barfuss (2023) summarizes lower break rates in larger diameters,
-    // with distribution (<=12") failing much more often than transmission mains.
-    // We only apply this to metallic/brittle materials; plastics already have low LoF here.
-    score += this.pofSizeUpliftFrom({ materialCode: mat, diamMm });
-
-    // Age/vintage adjustments (explicit ranges).
-    // - CI & AC older than 50 years: elevated likelihood.
-    // - AC near/over 50 years: treat as approaching end-of-life (stronger bump).
-    if (typeof age === "number" && Number.isFinite(age)) {
-      if (mat === "CI" && age > 50) score += 1;
-      if (mat === "AC" && age > 50) score += 2;
-
-      // PCCP / PCI: older assets are more likely to exhibit distress.
-      // Keep this as a floor so we don't over-amplify for already-high vintages.
-      if (mat === "PCI" || mat === "PCCP") {
-        if (age >= 50) score = Math.max(score, 4);
-        else if (age >= 40) score = Math.max(score, 3);
-      }
+    const vintageOverride = this.pofVintageOverrideFrom({ materialCode: mat, installYear: iy });
+    if (typeof vintageOverride === "number" && Number.isFinite(vintageOverride)) {
+      return this.clamp(vintageOverride, 1, 4);
     }
 
-    // PCCP / PCI vintage-specific likelihood.
-    // - 1972–1978: highest likelihood.
-    // - Other 1970–1980: elevated likelihood.
-    // Note: we do not have a reliable per-segment "Class IV wire" flag in the dataset,
-    // so installation year is used as the proxy for these published vintage ranges.
-    if (iy != null && (mat === "PCI" || mat === "PCCP")) {
-      if (iy >= 1972 && iy <= 1978) score = Math.max(score, 4);
-      else if (iy >= 1970 && iy <= 1980) score = Math.max(score, 3);
-    }
+    const base = this.pofMaterialBaseFrom({ materialCode: mat });
+    const diamAdj = this.pofDiameterAdjustmentFrom({ materialCode: mat, diamMm });
+    const ageAdj = this.pofAgeAdjustmentFrom({ materialCode: mat, ageYears: age });
+    const preRound = base + diamAdj + ageAdj;
 
-    return this.clamp(Math.round(score), 1, 4);
+    return this.scoreFromFloat1to4(preRound) ?? this.clamp(base, 1, 4);
   }
 
   consequenceScoreFrom({ materialCode, diamMm, lengthM } = {}) {
-    // CoF proxy: diameter-driven with material overrides from the doc.
+    // CoF proxy: diameter-driven with doc-backed material adjustments.
+    // (We intentionally do not add extra factors like length unless explicitly sourced.)
     let score = 2;
-
+    let diamScore = null;
     if (typeof diamMm === "number" && Number.isFinite(diamMm)) {
       if (diamMm <= 150) score = 1;
       else if (diamMm <= 250) score = 2;
       else if (diamMm <= 400) score = 3;
       else score = 4;
+      diamScore = score;
     }
 
     const mat = this.normalizeMaterial(materialCode);
 
-    // Material-based consequence hints:
-    // - PCCP is described as Very High consequence.
-    // - Steel can be High for large-diameter transmission mains.
-    // - Copper is Low (typically services/small).
-    if (mat === "PCI" || mat === "PCCP") score = Math.max(score, 4);
-    if (mat === "ST" && (typeof diamMm === "number" && diamMm >= 400)) score = Math.max(score, 3);
-    if (mat === "CU") score = Math.min(score, 1);
+    // PCCP trunk mains: catastrophic consequence.
+    if (mat === "PCI" || mat === "PCCP") score = 4;
 
-    // Small bump for very long segments.
-    if (typeof lengthM === "number" && Number.isFinite(lengthM) && lengthM >= 500) {
-      score += 1;
+    // Steel: High for large-diameter transmission mains.
+    if ((mat === "ST" || mat === "STEEL") && (typeof diamMm === "number" && Number.isFinite(diamMm) && diamMm >= 400)) {
+      score = Math.max(score, 4);
     }
 
-    return this.clamp(Math.round(score), 1, 4);
+    // Copper: small service-like assets.
+    if (mat === "CU") score = Math.min(score, 1);
+
+    // AC: hydraulic consequence may be low/moderate, but repair handling costs/constraints are higher.
+    if (mat === "AC") score = Math.max(score, 2);
+
+    // PVC/HDPE: low to moderate consequence.
+    if (mat === "PVC" || mat === "PE" || mat === "HDPE") score = Math.min(score, 3);
+
+    // CI/DI are described as moderate consequence in the summary doc.
+    if (mat === "CI" || mat === "DI" || mat === "PDI" || mat === "YDI") score = Math.max(score, 2);
+
+    return this.scoreFromFloat1to4(score) ?? (diamScore != null ? this.clamp(diamScore, 1, 4) : 2);
   }
 
   riskBinFromScores(pof, cof) {
@@ -182,29 +195,41 @@ export class RiskConsequenceModel {
   }
 
   scoreFromFloat01to4(x) {
-    // Convert a 1..~5 float score (e.g., road uplift adds 0.5 increments)
-    // into our 1..4 discrete level.
-    if (typeof x !== "number" || !Number.isFinite(x)) return null;
-    if (x <= 2.0) return 1;
-    if (x <= 3.0) return 2;
-    if (x <= 4.0) return 3;
-    return 4;
+    // Backwards-compatible alias used by the roads adjustment code.
+    return this.scoreFromFloat1to4(x);
   }
 
   compute({ materialCode, diamMm, installYear, lengthM } = {}) {
-    const pof = this.pofScoreFrom({ materialCode, installYear, diamMm });
-    const cof = this.consequenceScoreFrom({ materialCode, diamMm, lengthM });
+    const mat = this.normalizeMaterial(materialCode);
+    const iy = typeof installYear === "number" && Number.isFinite(installYear) ? installYear : null;
+    const age = this.ageYears(iy);
+
+    const pofVintageOverride = this.pofVintageOverrideFrom({ materialCode: mat, installYear: iy });
+    const pofBaseMaterial = this.pofMaterialBaseFrom({ materialCode: mat });
+    const pofDiamAdj = this.pofDiameterAdjustmentFrom({ materialCode: mat, diamMm });
+    const pofAgeAdj = this.pofAgeAdjustmentFrom({ materialCode: mat, ageYears: age });
+    const pofPreRound =
+      typeof pofVintageOverride === "number" && Number.isFinite(pofVintageOverride)
+        ? pofVintageOverride
+        : pofBaseMaterial + pofDiamAdj + pofAgeAdj;
+    const pof =
+      typeof pofVintageOverride === "number" && Number.isFinite(pofVintageOverride)
+        ? this.clamp(pofVintageOverride, 1, 4)
+        : (this.scoreFromFloat1to4(pofPreRound) ?? this.clamp(pofBaseMaterial, 1, 4));
+
+    const cof = this.consequenceScoreFrom({ materialCode: mat, diamMm, lengthM });
     const riskBin = this.riskBinFromScores(pof, cof);
     return {
       pof,
       cof,
-      pofFloat: pof,
+      pofFloat: pofPreRound,
       cofFloat: cof,
       riskBin,
       source: "doc",
       pofSource: "doc",
       cofSource: "doc",
-      pofSizeUplift: this.pofSizeUpliftFrom({ materialCode, diamMm }),
+      pofDiameterAdjustment: pofDiamAdj,
+      pofVintageOverride,
     };
   }
 
@@ -214,60 +239,21 @@ export class RiskConsequenceModel {
     const iy = installYear ?? null;
     const age = this.ageYears(iy);
 
-    // --- PoF breakdown ---
-    const baseByMaterial = new Map([
-      ["PVC", 1],
-      ["PE", 1],
-      ["HDPE", 1],
-      ["DI", 2],
-      ["PDI", 2],
-      ["YDI", 2],
-      ["ST", 2],
-      ["STEEL", 2],
-      ["CI", 3],
-      ["AC", 3],
-      ["PCI", 2],
-      ["PCCP", 2],
-      ["CU", 2],
-      ["COPPER", 2],
-    ]);
+    // --- PoF breakdown (explicit scorecard) ---
+    const pofBaseMaterial = this.pofMaterialBaseFrom({ materialCode: mat });
+    const pofDiamAdj = this.pofDiameterAdjustmentFrom({ materialCode: mat, diamMm });
+    const pofAgeAdj = this.pofAgeAdjustmentFrom({ materialCode: mat, ageYears: age });
+    const pofVintageOverride = this.pofVintageOverrideFrom({ materialCode: mat, installYear: iy });
 
-    const pofBaseMaterial = baseByMaterial.get(mat) ?? 2;
-    const pofSizeUplift = this.pofSizeUpliftFrom({ materialCode: mat, diamMm });
-
-    let pofAgeUplift = 0;
-    if (typeof age === "number" && Number.isFinite(age)) {
-      if (mat === "CI" && age > 50) pofAgeUplift += 1;
-      if (mat === "AC" && age > 50) pofAgeUplift += 2;
-    }
-
-    let pofPccpAgeFloor = null;
-    if (typeof age === "number" && Number.isFinite(age) && (mat === "PCI" || mat === "PCCP")) {
-      if (age >= 50) pofPccpAgeFloor = 4;
-      else if (age >= 40) pofPccpAgeFloor = 3;
-    }
-
-    const pofPreVintage = pofBaseMaterial + pofSizeUplift + pofAgeUplift;
-    let pofVintageFloor = null;
-    if (iy != null && (mat === "PCI" || mat === "PCCP")) {
-      if (iy >= 1972 && iy <= 1978) pofVintageFloor = 4;
-      else if (iy >= 1970 && iy <= 1980) pofVintageFloor = 3;
-    }
-
-    let pofPreRound = pofPreVintage;
-    if (typeof pofPccpAgeFloor === "number" && Number.isFinite(pofPccpAgeFloor)) {
-      pofPreRound = Math.max(pofPreRound, pofPccpAgeFloor);
-    }
-    if (typeof pofVintageFloor === "number" && Number.isFinite(pofVintageFloor)) {
-      pofPreRound = Math.max(pofPreRound, pofVintageFloor);
-    }
-
+    const pofPreRound =
+      typeof pofVintageOverride === "number" && Number.isFinite(pofVintageOverride)
+        ? pofVintageOverride
+        : pofBaseMaterial + pofDiamAdj + pofAgeAdj;
     const pof = this.pofScoreFrom({ materialCode: mat, installYear: iy, diamMm });
 
     // --- CoF breakdown ---
     let cofDiamScore = null;
     let cofScore = 2;
-
     if (typeof diamMm === "number" && Number.isFinite(diamMm)) {
       if (diamMm <= 150) cofScore = 1;
       else if (diamMm <= 250) cofScore = 2;
@@ -276,23 +262,33 @@ export class RiskConsequenceModel {
       cofDiamScore = cofScore;
     }
 
-    let cofMaterialHint = null;
+    const cofMaterialAdjustments = [];
     if (mat === "PCI" || mat === "PCCP") {
-      cofMaterialHint = { type: "floor", value: 4 };
+      cofMaterialAdjustments.push({ type: "set", value: 4, reason: "PCCP trunk main consequence" });
+      cofScore = 4;
+    }
+    if ((mat === "ST" || mat === "STEEL") && (typeof diamMm === "number" && Number.isFinite(diamMm) && diamMm >= 400)) {
+      cofMaterialAdjustments.push({ type: "floor", value: 4, reason: "Large-diameter steel transmission" });
       cofScore = Math.max(cofScore, 4);
     }
-    if (mat === "ST" && (typeof diamMm === "number" && Number.isFinite(diamMm) && diamMm >= 400)) {
-      cofMaterialHint = { type: "floor", value: 3 };
-      cofScore = Math.max(cofScore, 3);
-    }
     if (mat === "CU") {
-      cofMaterialHint = { type: "cap", value: 1 };
+      cofMaterialAdjustments.push({ type: "cap", value: 1, reason: "Copper is typically small diameter" });
       cofScore = Math.min(cofScore, 1);
     }
+    if (mat === "AC") {
+      cofMaterialAdjustments.push({ type: "floor", value: 2, reason: "AC repair/handling complexity" });
+      cofScore = Math.max(cofScore, 2);
+    }
+    if (mat === "PVC" || mat === "PE" || mat === "HDPE") {
+      cofMaterialAdjustments.push({ type: "cap", value: 3, reason: "Plastic consequence is low-to-moderate" });
+      cofScore = Math.min(cofScore, 3);
+    }
+    if (mat === "CI" || mat === "DI" || mat === "PDI" || mat === "YDI") {
+      cofMaterialAdjustments.push({ type: "floor", value: 2, reason: "CI/DI consequence is moderate" });
+      cofScore = Math.max(cofScore, 2);
+    }
 
-    const cofLengthUplift =
-      typeof lengthM === "number" && Number.isFinite(lengthM) && lengthM >= 500 ? 1 : 0;
-    const cofPreRound = cofScore + cofLengthUplift;
+    const cofPreRound = cofScore;
     const cof = this.consequenceScoreFrom({ materialCode: mat, diamMm, lengthM });
 
     const product = (pof ?? 2) * (cof ?? 2);
@@ -310,17 +306,15 @@ export class RiskConsequenceModel {
       },
       pof: {
         baseMaterial: pofBaseMaterial,
-        sizeUplift: pofSizeUplift,
-        ageUplift: pofAgeUplift,
-        pccpAgeFloor: pofPccpAgeFloor,
-        vintageFloor: pofVintageFloor,
+        diameterAdjustment: pofDiamAdj,
+        ageAdjustment: pofAgeAdj,
+        vintageOverride: pofVintageOverride,
         preRound: pofPreRound,
         level: pof,
       },
       cof: {
         diamScore: cofDiamScore,
-        materialHint: cofMaterialHint,
-        lengthUplift: cofLengthUplift,
+        materialAdjustments: cofMaterialAdjustments,
         preRound: cofPreRound,
         level: cof,
       },
@@ -330,11 +324,68 @@ export class RiskConsequenceModel {
         riskLabel,
       },
       formula: {
-        pof: "PoF = clamp(round(max(baseMaterial + sizeUplift + ageUplift, pccpAgeFloor?, vintageFloor?)), 1, 4)",
-        cof: "CoF = clamp(round((diameterScore or 2) with material hints + lengthUplift), 1, 4)",
+        pof: "PoF = if PCCP vintage override then that else clamp(round(baseMaterial + diameterAdjustment + ageAdjustment), 1, 4)",
+        cof: "CoF = clamp(round(diameterScore with material caps/floors), 1, 4)",
         risk: "RiskClass = bin(PoF × CoF): <=4→1, <=8→2, <=12→3, else→4",
       },
       source: "doc",
+    };
+  }
+
+  sanityCheck() {
+    const cases = [
+      {
+        name: "CI old small (high PoF, moderate CoF)",
+        input: { materialCode: "CI", diamMm: 150, installYear: 1960, lengthM: null },
+        expect: { pof: 4, cof: 2, riskBin: 2 },
+      },
+      {
+        name: "AC old small (high PoF, moderate CoF)",
+        input: { materialCode: "AC", diamMm: 150, installYear: 1960, lengthM: null },
+        expect: { pof: 4, cof: 2, riskBin: 2 },
+      },
+      {
+        name: "DI typical small (moderate PoF, moderate CoF)",
+        input: { materialCode: "DI", diamMm: 150, installYear: 1990, lengthM: null },
+        expect: { pof: 3, cof: 2, riskBin: 2 },
+      },
+      {
+        name: "PVC typical (low PoF, low CoF)",
+        input: { materialCode: "PVC", diamMm: 150, installYear: 1990, lengthM: null },
+        expect: { pof: 1, cof: 1, riskBin: 1 },
+      },
+      {
+        name: "PCCP bad vintage (very high PoF + very high CoF)",
+        input: { materialCode: "PCCP", diamMm: 600, installYear: 1976, lengthM: null },
+        expect: { pof: 4, cof: 4, riskBin: 4 },
+      },
+      {
+        name: "PCCP non-vintage (low PoF + very high CoF)",
+        input: { materialCode: "PCCP", diamMm: 600, installYear: 1986, lengthM: null },
+        expect: { pof: 1, cof: 4, riskBin: 2 },
+      },
+    ];
+
+    const results = cases.map((c) => {
+      const out = this.compute(c.input);
+      const pass =
+        out?.pof === c.expect.pof &&
+        out?.cof === c.expect.cof &&
+        out?.riskBin === c.expect.riskBin;
+      return {
+        name: c.name,
+        input: c.input,
+        expect: c.expect,
+        got: { pof: out?.pof, cof: out?.cof, riskBin: out?.riskBin },
+        pass,
+      };
+    });
+
+    const failed = results.filter((r) => !r.pass);
+    return {
+      ok: failed.length === 0,
+      failedCount: failed.length,
+      results,
     };
   }
 }

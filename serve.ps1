@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-function Get-ListenerPid([int]$p) {
+function Get-ListenerProcessId([int]$p) {
   $c = Get-NetTCPConnection -LocalPort $p -ErrorAction SilentlyContinue |
     Where-Object { $_.State -eq 'Listen' } |
     Select-Object -First 1
@@ -16,26 +16,31 @@ function Get-ListenerPid([int]$p) {
 
 switch ($Action) {
   'status' {
-    $listenerPid = Get-ListenerPid $Port
-    if ($listenerPid) { "LISTENING on $Port (PID $listenerPid)" } else { "NOT LISTENING on $Port" }
+    $listenerProcessId = Get-ListenerProcessId $Port
+    if ($listenerProcessId) { "LISTENING on $Port (PID $listenerProcessId)" } else { "NOT LISTENING on $Port" }
   }
   'stop' {
-    $listenerPid = Get-ListenerPid $Port
-    if ($listenerPid) {
-      Stop-Process -Id $listenerPid -Force -ErrorAction SilentlyContinue
-      "Stopped PID $listenerPid on port $Port"
+    $listenerProcessId = Get-ListenerProcessId $Port
+    if ($listenerProcessId) {
+      Stop-Process -Id $listenerProcessId -Force -ErrorAction SilentlyContinue
+      "Stopped PID $listenerProcessId on port $Port"
     } else {
       "Nothing to stop on port $Port"
     }
   }
   default {
-    $listenerPid = Get-ListenerPid $Port
-    if ($listenerPid) {
-      "Already listening on $Port (PID $listenerPid)"
+    $listenerProcessId = Get-ListenerProcessId $Port
+    if ($listenerProcessId) {
+      "Already listening on $Port (PID $listenerProcessId)"
       return
     }
 
-    $proc = Start-Process -FilePath python -ArgumentList @(
+    $pythonExe = Join-Path (Get-Location) '.venv\Scripts\python.exe'
+    if (-not (Test-Path $pythonExe)) {
+      $pythonExe = 'python'
+    }
+
+    $proc = Start-Process -FilePath $pythonExe -ArgumentList @(
       '-m','http.server',"$Port",'--bind','127.0.0.1'
     ) -WorkingDirectory (Get-Location) -PassThru
 

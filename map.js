@@ -40,7 +40,7 @@ let roadExposureBufferM = null;
 // Loaded from data/Major_Road_Network_20251231.geojson
 let roadsGeojson = null;
 
-const ROAD_AFFECTED_MATERIALS = new Set(["CI", "AC", "PCI", "PCCP", "CON"]);
+const ROAD_AFFECTED_MATERIALS = new Set(["CI", "AC", "DI", "PDI", "YDI", "ST", "STEEL"]);
 const OLD_PVC_AGE_YEARS = 40;
 
 // Tailwind-like blues (already used elsewhere in the project via hex codes).
@@ -300,6 +300,20 @@ function roadUpliftBin(upliftLof) {
 
 const riskModel = new RiskConsequenceModel({ currentYear: CURRENT_YEAR });
 
+// Optional: quick risk-model sanity checks (console only).
+try {
+  const debug = new URLSearchParams(window.location.search).get("debug") === "1";
+  if (debug && typeof riskModel?.sanityCheck === "function") {
+    const report = riskModel.sanityCheck();
+    console.groupCollapsed("RISK MODEL SANITY CHECKS");
+    console.table(report?.results ?? []);
+    if (!report?.ok) console.warn("Sanity checks failed", report);
+    console.groupEnd();
+  }
+} catch {
+  // Ignore.
+}
+
 async function loadRoadProximity() {
   // Expected format: { buffer_m: number, byMain: [{globalid, functional_class, uplift_lof, min_dist_m, source_ctp_class}, ...] }
   try {
@@ -344,7 +358,7 @@ async function loadRoadProximity() {
   }
 }
 
-function isRoadUpliftEligible({ materialCode, ageYears }) {
+function isRoadAdjustmentEligible({ materialCode, ageYears }) {
   const mat = (materialCode ?? "").toString().trim().toUpperCase();
   if (ROAD_AFFECTED_MATERIALS.has(mat)) return true;
   if (mat === "PVC" && typeof ageYears === "number" && Number.isFinite(ageYears)) {
@@ -403,7 +417,7 @@ function applyMajorRoadAdjustment(scored, derived) {
   const upliftBase = Number(exp.upliftLof);
   if (!Number.isFinite(upliftBase) || upliftBase <= 0) return scored;
 
-  const eligible = isRoadUpliftEligible({ materialCode: derived?.matCode, ageYears: derived?.ageYears });
+  const eligible = isRoadAdjustmentEligible({ materialCode: derived?.matCode, ageYears: derived?.ageYears });
   if (!eligible) return scored;
 
   const materialFactor = roadMaterialFactor({ materialCode: derived?.matCode, ageYears: derived?.ageYears });
@@ -507,20 +521,27 @@ function formatInspectorText({ props, derived, explanation, adjusted }) {
 
   lines.push("PoF breakdown:");
   lines.push(`  baseMaterial = ${pof.baseMaterial ?? "?"}`);
-  lines.push(`  sizeAdjustment = ${pof.sizeUplift ?? "?"}`);
-  lines.push(`  ageAdjustment = ${pof.ageUplift ?? "?"}`);
-  lines.push(`  pccpAgeFloor = ${pof.pccpAgeFloor ?? "(none)"}`);
-  lines.push(`  vintageFloor = ${pof.vintageFloor ?? "(none)"}`);
+  lines.push(`  diameterAdjustment = ${pof.diameterAdjustment ?? "?"}`);
+  lines.push(`  ageAdjustment = ${pof.ageAdjustment ?? "?"}`);
+  lines.push(`  pccpVintageOverride = ${pof.vintageOverride ?? "(none)"}`);
   lines.push(`  preRound = ${formatNumber(pof.preRound, 2)}`);
   lines.push(`  PoF (level) = ${pof.level ?? "?"}`);
   lines.push("");
 
   lines.push("CoF breakdown:");
   lines.push(`  diamScore = ${cof.diamScore ?? "?"}`);
-  lines.push(
-    `  materialHint = ${cof.materialHint ? `${cof.materialHint.type} ${cof.materialHint.value}` : "(none)"}`
-  );
-  lines.push(`  lengthAdjustment = ${cof.lengthUplift ?? "?"}`);
+  const matAdj = Array.isArray(cof.materialAdjustments) && cof.materialAdjustments.length
+    ? cof.materialAdjustments
+        .map((a) => {
+          const t = (a?.type ?? "").toString();
+          const v = a?.value;
+          const r = (a?.reason ?? "").toString();
+          const rv = r ? ` (${r})` : "";
+          return `${t} ${v}${rv}`.trim();
+        })
+        .join(", ")
+    : "(none)";
+  lines.push(`  materialAdjustments = ${matAdj}`);
   lines.push(`  preRound = ${formatNumber(cof.preRound, 2)}`);
   lines.push(`  CoF (level) = ${cof.level ?? "?"}`);
   lines.push("");
@@ -1062,10 +1083,10 @@ function summarizeProperties(properties, labels) {
   });
   const gid = (properties.globalid ?? "").toString().trim();
   const expRaw = gid ? roadExposureByGlobalId.get(gid) : null;
-  const roadEligible = isRoadUpliftEligible({ materialCode: matCode, ageYears: ageYearsValue });
+  const roadEligible = isRoadAdjustmentEligible({ materialCode: matCode, ageYears: ageYearsValue });
   const derivedForRoads = { globalid: gid, matCode, ageYears: ageYearsValue };
   const adj = applyMajorRoadAdjustment(scored, derivedForRoads);
-  const { pof, cof, riskBin: rbin, source, pofSource, cofSource, pofSizeUplift } = adj;
+  const { pof, cof, riskBin: rbin, source, pofSource, cofSource, pofDiameterAdjustment } = adj;
 
   const lines = [];
   lines.push(`diam: ${diamMm ?? "Unknown"}${diamMm != null ? " mm" : ""}`);
@@ -1081,8 +1102,10 @@ function summarizeProperties(properties, labels) {
     if (ps) parts.push(`PoF ${ps}`);
     if (cs) parts.push(`CoF ${cs}`);
     const sizeAdj =
-      typeof pofSizeUplift === "number" && Number.isFinite(pofSizeUplift) && pofSizeUplift > 0
-        ? `; +${pofSizeUplift} small-diameter PoF adjustment`
+      typeof pofDiameterAdjustment === "number" &&
+      Number.isFinite(pofDiameterAdjustment) &&
+      pofDiameterAdjustment > 0
+        ? `; +${pofDiameterAdjustment} diameter PoF adjustment`
         : "";
     const detail = parts.length ? ` (${parts.join(", ")}${sizeAdj})` : sizeAdj ? ` (${sizeAdj.slice(2)})` : "";
     lines.push(`risk source: ${source}${detail}`);
@@ -1332,7 +1355,7 @@ function render(geojson, labels) {
       lengthM: derived.lengthM,
     });
     const adj = applyMajorRoadAdjustment(scored, derived);
-    const { pof, cof, riskBin, source, pofSource, cofSource, pofSizeUplift } = adj;
+    const { pof, cof, riskBin, source, pofSource, cofSource, pofDiameterAdjustment } = adj;
     derived.pof = pof;
     derived.cof = cof;
     derived.pofFloat =
@@ -1350,7 +1373,8 @@ function render(geojson, labels) {
     derived.riskSource = source;
     derived.pofSource = (pofSource ?? "").toString().trim() || null;
     derived.cofSource = (cofSource ?? "").toString().trim() || null;
-    derived.pofSizeUplift = Number.isFinite(Number(pofSizeUplift)) ? Number(pofSizeUplift) : null;
+    derived.pofDiameterAdjustment =
+      Number.isFinite(Number(pofDiameterAdjustment)) ? Number(pofDiameterAdjustment) : null;
     derived.roadFunctionalClass = (adj?._roadFunctionalClass ?? "").toString().trim() || null;
     derived.roadUpliftLof = Number.isFinite(adj?._roadUpliftLof) ? adj._roadUpliftLof : null;
     derived.roadMinDistM = Number.isFinite(adj?._roadMinDistM) ? adj._roadMinDistM : null;
@@ -1406,7 +1430,7 @@ function render(geojson, labels) {
       const pZone = (props.p_zone ?? derived.pZone ?? "").toString().trim();
 
       const exp = gid ? roadExposureByGlobalId.get(gid) : null;
-      const eligible = isRoadUpliftEligible({ materialCode: matCode, ageYears: ageY });
+      const eligible = isRoadAdjustmentEligible({ materialCode: matCode, ageYears: ageY });
 
       const debug = {
         at: new Date().toISOString(),
