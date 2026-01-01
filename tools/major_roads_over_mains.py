@@ -14,8 +14,12 @@ OUT_CSV = ROOT / "docs" / "road_proximity_by_main.csv"
 
 # Per docs/roads_risk.txt: avoid wide distance-based nearest-road mapping.
 # Instead, do a small-buffer (intersection-style) join.
-# Interpretation of "over": road segment touches the main segment within BUFFER_M.
-BUFFER_M = 2.0
+# Interpretation of "over": road centerline touches the main segment within BUFFER_M.
+# NOTE: The roads layer appears to be centerlines; a 1–2m buffer is often too
+# small to catch mains under a roadway corridor (pipes are commonly offset from
+# centerline). We use a larger corridor buffer to capture "under/within road"
+# exposure more reliably.
+BUFFER_M = 15.0
 
 # Spatial index grid size (meters). Bigger is faster to build, smaller reduces candidates.
 CELL_M = 150.0

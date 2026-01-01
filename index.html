@@ -27,6 +27,25 @@
         align-items: center;
       }
 
+      .help-button {
+        margin-left: auto;
+        width: 30px;
+        height: 30px;
+        border: 1px solid #e5e7eb;
+        border-radius: 9999px;
+        background: #ffffff;
+        color: #111827;
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1;
+        display: grid;
+        place-items: center;
+      }
+
+      .help-button:active {
+        background: #f9fafb;
+      }
+
       header h1 {
         font-size: 16px;
         margin: 0;
@@ -76,6 +95,16 @@
       .feature {
         fill: none;
         vector-effect: non-scaling-stroke;
+      }
+
+      .road {
+        fill: none;
+        stroke: #6b7280;
+        stroke-width: 1;
+        stroke-linecap: round;
+        vector-effect: non-scaling-stroke;
+        opacity: 0.7;
+        pointer-events: none;
       }
 
       .feature.is-hover {
@@ -249,6 +278,71 @@
         color: #b91c1c;
         white-space: pre-wrap;
       }
+
+      .help-panel {
+        position: absolute;
+        right: 10px;
+        top: 10px;
+        width: min(560px, 92vw);
+        max-height: min(62vh, 620px);
+        overflow: auto;
+        background: rgba(255, 255, 255, 0.97);
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 12px;
+        z-index: 5;
+        color: #111827;
+      }
+
+      .help-panel[hidden] {
+        display: none;
+      }
+
+      .help-panel .help-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .help-panel h2 {
+        font-size: 13px;
+        margin: 0;
+        font-weight: 700;
+      }
+
+      .help-panel .help-close {
+        margin-left: auto;
+        font-size: 12px;
+        padding: 6px 10px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #111827;
+      }
+
+      .help-panel .help-close:active {
+        background: #f9fafb;
+      }
+
+      .help-panel p {
+        margin: 8px 0;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .help-panel ul {
+        margin: 6px 0 10px 18px;
+        padding: 0;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .help-panel code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+          monospace;
+        font-size: 11px;
+      }
     </style>
   </head>
   <body>
@@ -256,11 +350,81 @@
       <header>
         <h1>Calgary Water – Public Water Main</h1>
         <div class="meta">Pan: drag · Zoom: scroll/pinch · Query: click a feature</div>
+        <button id="helpToggle" class="help-button" type="button" aria-controls="helpPanel" aria-expanded="false" title="How risk is calculated">
+          ?
+        </button>
       </header>
       <div id="map">
         <div class="loading" id="status">Loading GeoJSON…</div>
         <div id="tiles" aria-hidden="true"></div>
         <div class="tooltip" id="tooltip" aria-hidden="true"></div>
+        <div class="help-panel" id="helpPanel" hidden>
+          <div class="help-header">
+            <h2>How “Risk” is calculated</h2>
+            <button id="helpClose" class="help-close" type="button">Close</button>
+          </div>
+
+          <p>
+            Risk is computed per main as a combination of <strong>Probability of Failure (PoF)</strong> and
+            <strong>Consequence of Failure (CoF)</strong>. The map can also apply a <strong>major-road uplift</strong>
+            and then uses a <strong>visual binning</strong> step to color the Risk overlay.
+          </p>
+
+          <p><strong>1) Base PoF (1–4)</strong></p>
+          <ul>
+            <li>
+              Starts from a material-based likelihood (e.g. PVC/PE lower, DI/Steel mid, CI/AC higher).
+            </li>
+            <li>
+              Adjusts for age/vintage (e.g. older CI/AC gets bumped; PCCP/PCI in 1970–1980 elevated, 1975–1978 highest).
+            </li>
+            <li>
+              Adjusts for status indicators that suggest abandoned/out-of-service.
+            </li>
+          </ul>
+
+          <p><strong>2) Base CoF (1–4)</strong></p>
+          <ul>
+            <li>Primarily driven by diameter (small = lower consequence, large = higher).</li>
+            <li>Material hints: PCCP/PCI tends to very high consequence; large steel can be high; copper tends low.</li>
+            <li>Very long segments get a small bump.</li>
+          </ul>
+
+          <p><strong>3) Risk class (1–4)</strong></p>
+          <ul>
+            <li>Computed from the PoF×CoF product (higher product → higher risk class).</li>
+          </ul>
+
+          <p><strong>4) CSV overrides (if present)</strong></p>
+          <ul>
+            <li>
+              If <code>docs/distinct_material_diameter_year_with_risk.csv</code> has an entry for a specific
+              (material, diameter, year) combination, its LoF/CoF values are used (and collapsed to 1–4).
+            </li>
+          </ul>
+
+          <p><strong>5) Major-road uplift (optional)</strong></p>
+          <ul>
+            <li>
+              If a main is close to a classified major road (precomputed offline), an uplift (e.g. +0.5 to +2.0)
+              is added to the PoF float score for eligible materials (and old PVC).
+            </li>
+            <li>
+              You can inspect the exact road exposure/uplift for a main by clicking it (see console “PIPE DEBUG …”).
+            </li>
+          </ul>
+
+          <p><strong>6) Risk overlay colors (visual binning)</strong></p>
+          <ul>
+            <li>
+              The Risk overlay uses 6 colors and bins mains by <em>rank</em> so that about 90% fall in bin 1,
+              then 90% of what remains in bin 2, etc. (This is to keep contrast when many mains share similar scores.)
+            </li>
+            <li>
+              This binning affects the <em>map colors only</em>; the underlying PoF/CoF and risk class values remain the same.
+            </li>
+          </ul>
+        </div>
         <div class="legend" id="legend">
           <div class="legend-header">
             <h2>Legend</h2>

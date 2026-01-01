@@ -9,10 +9,19 @@ export class RiskConsequenceModel {
     return Math.max(lo, Math.min(hi, n));
   }
 
+  riskPaletteN(n = 4) {
+    const nn = this.clamp(Math.round(Number(n) || 4), 2, 11);
+    // D3 interpolator runs red->green; reverse so Low->green, High->red.
+    const cols = typeof d3.quantize === "function" && d3.interpolateRdYlGn
+      ? d3.quantize(d3.interpolateRdYlGn, nn)
+      : (d3.schemeRdYlGn?.[nn] ?? []);
+    // Ensure array and correct direction.
+    const arr = Array.isArray(cols) ? cols.slice() : [];
+    return arr.reverse();
+  }
+
   riskPalette() {
-    const base =
-      d3.schemeRdYlGn?.[5] ?? ["#d73027", "#fc8d59", "#fee08b", "#d9ef8b", "#1a9850"];
-    return [base[4], base[3], base[1], base[0]];
+    return this.riskPaletteN(4);
   }
 
   consequencePalette() {
