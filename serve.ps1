@@ -16,22 +16,22 @@ function Get-ListenerPid([int]$p) {
 
 switch ($Action) {
   'status' {
-    $pid = Get-ListenerPid $Port
-    if ($pid) { "LISTENING on $Port (PID $pid)" } else { "NOT LISTENING on $Port" }
+    $listenerPid = Get-ListenerPid $Port
+    if ($listenerPid) { "LISTENING on $Port (PID $listenerPid)" } else { "NOT LISTENING on $Port" }
   }
   'stop' {
-    $pid = Get-ListenerPid $Port
-    if ($pid) {
-      Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-      "Stopped PID $pid on port $Port"
+    $listenerPid = Get-ListenerPid $Port
+    if ($listenerPid) {
+      Stop-Process -Id $listenerPid -Force -ErrorAction SilentlyContinue
+      "Stopped PID $listenerPid on port $Port"
     } else {
       "Nothing to stop on port $Port"
     }
   }
   default {
-    $pid = Get-ListenerPid $Port
-    if ($pid) {
-      "Already listening on $Port (PID $pid)"
+    $listenerPid = Get-ListenerPid $Port
+    if ($listenerPid) {
+      "Already listening on $Port (PID $listenerPid)"
       return
     }
 

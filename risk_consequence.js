@@ -50,7 +50,27 @@ export class RiskConsequenceModel {
     return a >= 0 ? a : null;
   }
 
-  pofScoreFrom({ materialCode, installYear, statusInd } = {}) {
+  pofSizeUpliftFrom({ materialCode, diamMm } = {}) {
+    // Conservative size effect: smaller distribution-size metallic/brittle mains
+    // experience higher observed break rates than larger diameters.
+    // Returns a float uplift in the same 1..4 scale used before rounding.
+    const mat = this.normalizeMaterial(materialCode);
+    if (typeof diamMm !== "number" || !Number.isFinite(diamMm)) return 0;
+    const sizeSensitive =
+      mat === "DI" ||
+      mat === "PDI" ||
+      mat === "YDI" ||
+      mat === "ST" ||
+      mat === "STEEL" ||
+      mat === "CI" ||
+      mat === "AC";
+    if (!sizeSensitive) return 0;
+    if (diamMm <= 150) return 1.0;
+    if (diamMm <= 305) return 0.5;
+    return 0;
+  }
+
+  pofScoreFrom({ materialCode, installYear, statusInd, diamMm } = {}) {
     // PoF proxy based on the qualitative guidance in
     // docs/Pipe_Risk_Assessment_Water_Mains_North_America.docx.
     const mat = this.normalizeMaterial(materialCode);
@@ -79,6 +99,12 @@ export class RiskConsequenceModel {
     ]);
 
     let score = baseByMaterial.get(mat) ?? 2;
+
+    // Size effect (conservative): break rates generally decrease as diameter increases.
+    // Source alignment: USU/Barfuss (2023) summarizes lower break rates in larger diameters,
+    // with distribution (<=12") failing much more often than transmission mains.
+    // We only apply this to metallic/brittle materials; plastics already have low LoF here.
+    score += this.pofSizeUpliftFrom({ materialCode: mat, diamMm });
 
     // Age/vintage adjustments (explicit ranges).
     // - CI & AC older than 50 years: elevated likelihood.
@@ -178,9 +204,13 @@ export class RiskConsequenceModel {
       if (o) {
         const pof = this.scoreFromFloat01to4(o.LoF);
         const cof = this.scoreFromFloat01to4(o.CoF);
-        const pofFinal = pof ?? this.pofScoreFrom({ materialCode, installYear, statusInd });
+        const pofFinal = pof ?? this.pofScoreFrom({ materialCode, installYear, statusInd, diamMm });
         const cofFinal = cof ?? this.consequenceScoreFrom({ materialCode, diamMm, lengthM });
         const riskBin = this.riskBinFromScores(pofFinal, cofFinal);
+        const pofSource = pof != null ? "csv" : "doc";
+        const cofSource = cof != null ? "csv" : "doc";
+        const source = pofSource === "csv" && cofSource === "csv" ? "csv" : pofSource === "doc" && cofSource === "doc" ? "doc" : "mix";
+        const pofSizeUplift = pofSource === "doc" ? this.pofSizeUpliftFrom({ materialCode, diamMm }) : null;
         return {
           pof: pofFinal,
           cof: cofFinal,
@@ -189,12 +219,15 @@ export class RiskConsequenceModel {
           riskBin,
           riskClass: (o.RiskClass ?? "").toString().trim() || null,
           family: (o.family ?? "").toString().trim() || null,
-          source: "csv",
+          source,
+          pofSource,
+          cofSource,
+          pofSizeUplift,
         };
       }
     }
 
-    const pof = this.pofScoreFrom({ materialCode, installYear, statusInd });
+    const pof = this.pofScoreFrom({ materialCode, installYear, statusInd, diamMm });
     const cof = this.consequenceScoreFrom({ materialCode, diamMm, lengthM });
     const riskBin = this.riskBinFromScores(pof, cof);
     return {
@@ -206,6 +239,9 @@ export class RiskConsequenceModel {
       riskClass: null,
       family: null,
       source: "doc",
+      pofSource: "doc",
+      cofSource: "doc",
+      pofSizeUplift: this.pofSizeUpliftFrom({ materialCode, diamMm }),
     };
   }
 }

@@ -347,6 +347,38 @@ function isRoadUpliftEligible({ materialCode, ageYears }) {
   return false;
 }
 
+function roadMaterialFactor({ materialCode, ageYears } = {}) {
+  const mat = (materialCode ?? "").toString().trim().toUpperCase();
+
+  // Evidence base is strongest that traffic loads create localized external stress/strain
+  // in buried pipes; we keep a conservative material scaling so the road factor doesn't
+  // overwhelm the base material/vintage likelihood.
+  if (mat === "CI" || mat === "AC" || mat === "PCI" || mat === "PCCP" || mat === "CON") return 1.0;
+  if (mat === "PVC" || mat === "PVCG") {
+    // docs/roads_risk.txt calls out "older PVC" specifically.
+    if (typeof ageYears === "number" && Number.isFinite(ageYears) && ageYears >= OLD_PVC_AGE_YEARS) return 0.8;
+    return 0.4;
+  }
+  if (mat === "DI" || mat === "PDI" || mat === "YDI" || mat === "ST" || mat === "STEEL") return 0.6;
+  if (mat === "PE" || mat === "HDPE") return 0.4;
+  return 0.5;
+}
+
+function roadDistanceFactor({ minDistM } = {}) {
+  const d = Number(minDistM);
+  const buffer = Number(roadExposureBufferM);
+  if (!Number.isFinite(d) || d < 0) return 1.0;
+  if (!Number.isFinite(buffer) || buffer <= 0) return 1.0;
+
+  // docs/roads_risk.txt explicitly recommends *intersection-style* exposure
+  // (mains directly under roads), not broad distance-based mapping.
+  // Our precompute uses a larger buffer to tolerate geometry misalignment; we
+  // therefore gate the uplift to "under / essentially under" distances.
+  if (d <= 2.0) return 1.0;
+  if (d <= 5.0) return 0.5;
+  return 0.0;
+}
+
 function applyMajorRoadAdjustment(scored, derived) {
   if (!scored || typeof scored !== "object") return scored;
   if (!roadExposureByGlobalId?.size) return scored;
@@ -354,12 +386,19 @@ function applyMajorRoadAdjustment(scored, derived) {
   if (!gid) return scored;
   const exp = roadExposureByGlobalId.get(gid);
   if (!exp || typeof exp !== "object") return scored;
-  if (!isRoadUpliftEligible({ materialCode: derived?.matCode, ageYears: derived?.ageYears })) {
-    return scored;
-  }
 
-  const uplift = Number(exp.upliftLof);
-  if (!Number.isFinite(uplift) || uplift <= 0) return scored;
+  const upliftBase = Number(exp.upliftLof);
+  if (!Number.isFinite(upliftBase) || upliftBase <= 0) return scored;
+
+  const eligible = isRoadUpliftEligible({ materialCode: derived?.matCode, ageYears: derived?.ageYears });
+  if (!eligible) return scored;
+
+  const materialFactor = roadMaterialFactor({ materialCode: derived?.matCode, ageYears: derived?.ageYears });
+  const distanceFactor = roadDistanceFactor({ minDistM: exp.minDistM });
+  if (!Number.isFinite(distanceFactor) || distanceFactor <= 0) return scored;
+
+  const upliftApplied = upliftBase * materialFactor * distanceFactor;
+  if (!Number.isFinite(upliftApplied) || upliftApplied <= 0.05) return scored;
 
   const basePofFloat =
     typeof scored.pofFloat === "number" && Number.isFinite(scored.pofFloat)
@@ -367,7 +406,7 @@ function applyMajorRoadAdjustment(scored, derived) {
       : Number(scored.pof ?? 2);
   const basePofLevel = clamp(Number(scored.pof ?? 2), 1, 4);
 
-  const bumpedPofFloat = basePofFloat + uplift;
+  const bumpedPofFloat = basePofFloat + upliftApplied;
   const bumpedPofLevel = riskModel.scoreFromFloat01to4(bumpedPofFloat) ?? basePofLevel;
 
   const cof = clamp(Number(scored.cof ?? 2), 1, 4);
@@ -381,7 +420,14 @@ function applyMajorRoadAdjustment(scored, derived) {
     riskBin,
     source,
     _roadFunctionalClass: (exp.functionalClass ?? "").toString(),
-    _roadUpliftLof: uplift,
+    _roadUpliftLof: upliftApplied,
+    _roadUpliftLofBase: upliftBase,
+    _roadUpliftFactors: {
+      eligible,
+      materialFactor,
+      distanceFactor,
+      bufferM: Number.isFinite(Number(roadExposureBufferM)) ? Number(roadExposureBufferM) : null,
+    },
     _roadMinDistM: Number.isFinite(exp.minDistM) ? exp.minDistM : null,
     _pofBaseLevel: basePofLevel,
     _pofBaseFloat: basePofFloat,
@@ -945,7 +991,7 @@ function summarizeProperties(properties, labels) {
   const roadEligible = isRoadUpliftEligible({ materialCode: matCode, ageYears: ageYearsValue });
   const derivedForRoads = { globalid: gid, matCode, ageYears: ageYearsValue };
   const adj = applyMajorRoadAdjustment(scored, derivedForRoads);
-  const { pof, cof, riskBin: rbin, riskClass, family, source } = adj;
+  const { pof, cof, riskBin: rbin, riskClass, family, source, pofSource, cofSource, pofSizeUplift } = adj;
 
   const lines = [];
   lines.push(`diam: ${diamMm ?? "Unknown"}${diamMm != null ? " mm" : ""}`);
@@ -956,7 +1002,18 @@ function summarizeProperties(properties, labels) {
   if (riskClass) lines.push(`risk class (csv): ${riskClass}`);
   if (family) lines.push(`risk family (csv): ${family}`);
   lines.push(`consequence: ${riskModel.riskLabels[cof - 1]} (${cof})`);
-  lines.push(`risk source: ${source}`);
+  {
+    const ps = (pofSource ?? "").toString().trim() || null;
+    const cs = (cofSource ?? "").toString().trim() || null;
+    const parts = [];
+    if (ps) parts.push(`PoF ${ps}`);
+    if (cs) parts.push(`CoF ${cs}`);
+    const uplift = typeof pofSizeUplift === "number" && Number.isFinite(pofSizeUplift) && pofSizeUplift > 0
+      ? `; +${pofSizeUplift} small-diameter PoF`
+      : "";
+    const detail = parts.length ? ` (${parts.join(", ")}${uplift})` : uplift ? ` (${uplift.slice(2)})` : "";
+    lines.push(`risk source: ${source}${detail}`);
+  }
 
   if (gid) lines.push(`globalid: ${gid}`);
 
@@ -1209,7 +1266,7 @@ function render(geojson, labels) {
       comboKeyParts: { materialRaw, diamRaw, yearRaw },
     });
     const adj = applyMajorRoadAdjustment(scored, derived);
-    const { pof, cof, riskBin, riskClass, family, source } = adj;
+    const { pof, cof, riskBin, riskClass, family, source, pofSource, cofSource, pofSizeUplift } = adj;
     derived.pof = pof;
     derived.cof = cof;
     derived.pofFloat =
@@ -1227,6 +1284,9 @@ function render(geojson, labels) {
     derived.riskClass = riskClass;
     derived.riskFamily = family;
     derived.riskSource = source;
+    derived.pofSource = (pofSource ?? "").toString().trim() || null;
+    derived.cofSource = (cofSource ?? "").toString().trim() || null;
+    derived.pofSizeUplift = Number.isFinite(Number(pofSizeUplift)) ? Number(pofSizeUplift) : null;
     derived.roadFunctionalClass = (adj?._roadFunctionalClass ?? "").toString().trim() || null;
     derived.roadUpliftLof = Number.isFinite(adj?._roadUpliftLof) ? adj._roadUpliftLof : null;
     derived.roadMinDistM = Number.isFinite(adj?._roadMinDistM) ? adj._roadMinDistM : null;
