@@ -1,0 +1,82 @@
+1) How to add the roads dataset (GIS workflow)
+
+You generally want a roads-layer with at least:
+
+functional class (arterial / collector / local)
+
+number of lanes or ROW width
+
+ideally AADT (average annual daily traffic)
+
+truck route flags (if available)
+
+For Calgary, the best source is usually the City of Calgary Open Data “Roads / Transportation” layers — they contain road classification and in some areas AADT.
+
+Once you have both layers:
+
+Buffer water mains slightly (e.g., 1–2 m)
+
+Intersect or spatial-join roads to mains
+
+Assign the highest road class touching that pipe segment
+
+That gives each pipe a categorical traffic exposure value.
+
+You do not want distance-based nearest road mapping — mains directly under roads experience loading very differently than those in boulevard / greenbelt alignments.
+
+2) Why roads affect failure risk
+
+Traffic loading increases failure probability through:
+
+repeated vibration cycles
+
+dynamic vertical stress transfer
+
+trench settlement / fatigue
+
+heavy axle point loads over shallow mains
+
+frost heave amplification in winter
+
+Pipes most affected:
+
+cast iron
+
+asbestos cement
+
+older PVC
+
+PCCP with cracked mortar
+
+any pipe with shallow cover
+
+Less affected but still influenced:
+
+DI / steel (unless corrosion-thinned)
+
+3) Quantifying risk — three common approaches
+
+Below are realistic, defensible approaches used by utilities.
+
+Method A — Road class → categorical risk uplift (most common)
+
+Map functional class to risk categories.
+
+Example:
+
+Road class	Typical meaning	Risk uplift (LoF)
+Local / residential	light traffic	0
+Collector	moderate traffic & buses	+0.5
+Minor arterial	high traffic	+1.0
+Major arterial / primary	heavy vehicles	+1.5
+Expressway / freeway	extremely high vibration	+2.0
+
+Notes:
+
+uplift applies only to brittle or aged pipes
+
+not applied to newer PVC / HDPE unless shallow
+
+can be capped if other factors already high
+
+This approach is transparent and auditable.

@@ -14,6 +14,26 @@ The legend includes a **Style** selector for **Risk** and **Consequence**.
 
 These scores are derived from the available fields (e.g., install year / material / diameter) using the qualitative guidance in [docs/Pipe_Risk_Assessment_Water_Mains_North_America.docx](docs/Pipe_Risk_Assessment_Water_Mains_North_America.docx) (implemented in [risk_consequence.js](risk_consequence.js)).
 
+## Style (Break Density)
+
+There is also a **Break density** style that colors mains by the number of breaks per km of pipe in the same `p_zone`.
+
+The break points in `data/Water_Main_Breaks_20251231.geojson` do not include `p_zone`, so the tool assigns each break to the *nearest* main feature and inherits its `p_zone`. It then aggregates:
+
+- `breaks_per_km = breaks_total / (pipe_km in p_zone)`
+
+To generate the required file for the overlay:
+
+```bash
+python tools/break_density_by_p_zone.py
+```
+
+This writes:
+
+- `docs/break_density_by_p_zone.json` (used by the map)
+- `docs/break_density_by_p_zone.csv`
+- `docs/breaks_with_p_zone.csv` (debug)
+
 ## Basemap
 
 The page renders an online raster basemap using OpenStreetMap tile images (internet required).

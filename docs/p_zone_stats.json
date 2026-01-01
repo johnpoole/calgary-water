@@ -1,0 +1,464 @@
+{
+  "byZone": [
+    {
+      "p_zone": "GLENMORE",
+      "feature_count": 13883,
+      "pipe_km": 1213.628948,
+      "min_lon": -114.2723144,
+      "min_lat": 50.8558227,
+      "max_lon": -113.9075506,
+      "max_lat": 51.1077629,
+      "extent_bbox_km2": 716.964696
+    },
+    {
+      "p_zone": "NORTH HILL",
+      "feature_count": 12282,
+      "pipe_km": 1181.100161,
+      "min_lon": -114.171923,
+      "min_lat": 51.0391993,
+      "max_lon": -113.9119736,
+      "max_lat": 51.2122282,
+      "extent_bbox_km2": 349.821337
+    },
+    {
+      "p_zone": "OGDEN",
+      "feature_count": 5730,
+      "pipe_km": 516.778347,
+      "min_lon": -114.0587655,
+      "min_lat": 50.859636,
+      "max_lon": -113.8828441,
+      "max_lat": 51.0084444,
+      "extent_bbox_km2": 204.447121
+    },
+    {
+      "p_zone": "SPY HILL EAST",
+      "feature_count": 3521,
+      "pipe_km": 325.231211,
+      "min_lon": -114.1646446,
+      "min_lat": 51.0903637,
+      "max_lon": -114.0247362,
+      "max_lat": 51.1956485,
+      "extent_bbox_km2": 114.521138
+    },
+    {
+      "p_zone": "LOWER SARCEE",
+      "feature_count": 3116,
+      "pipe_km": 280.253136,
+      "min_lon": -114.1405092,
+      "min_lat": 50.8566264,
+      "max_lon": -114.0705187,
+      "max_lat": 50.9778694,
+      "extent_bbox_km2": 66.296014
+    },
+    {
+      "p_zone": "WEST CALGARY",
+      "feature_count": 2393,
+      "pipe_km": 217.948916,
+      "min_lon": -114.2323709,
+      "min_lat": 50.9922344,
+      "max_lon": -114.0948611,
+      "max_lat": 51.0537487,
+      "extent_bbox_km2": 65.934488
+    },
+    {
+      "p_zone": "SPY HILL WEST",
+      "feature_count": 2404,
+      "pipe_km": 197.093317,
+      "min_lon": -114.274277,
+      "min_lat": 51.0716013,
+      "max_lon": -114.0944829,
+      "max_lat": 51.1154466,
+      "extent_bbox_km2": 61.353565
+    },
+    {
+      "p_zone": "TOP HILL",
+      "feature_count": 2075,
+      "pipe_km": 194.560059,
+      "min_lon": -114.2571831,
+      "min_lat": 51.115011,
+      "max_lon": -114.1251259,
+      "max_lat": 51.1762331,
+      "extent_bbox_km2": 62.852402
+    },
+    {
+      "p_zone": "BROADCAST HILL",
+      "feature_count": 1858,
+      "pipe_km": 159.894112,
+      "min_lon": -114.2698638,
+      "min_lat": 50.8657624,
+      "max_lon": -114.0241951,
+      "max_lat": 51.0833147,
+      "extent_bbox_km2": 417.032523
+    },
+    {
+      "p_zone": "MIDNAPORE",
+      "feature_count": 1745,
+      "pipe_km": 158.196429,
+      "min_lon": -114.0709461,
+      "min_lat": 50.8505415,
+      "max_lon": -113.9962444,
+      "max_lat": 50.9251406,
+      "extent_bbox_km2": 43.564228
+    },
+    {
+      "p_zone": "BIG HILL WEST",
+      "feature_count": 1788,
+      "pipe_km": 155.727571,
+      "min_lon": -114.2731339,
+      "min_lat": 51.0821394,
+      "max_lon": -114.1404317,
+      "max_lat": 51.1331643,
+      "extent_bbox_km2": 52.682804
+    },
+    {
+      "p_zone": "FOOTHILLS",
+      "feature_count": 699,
+      "pipe_km": 115.009591,
+      "min_lon": -114.0111991,
+      "min_lat": 50.9540337,
+      "max_lon": -113.9244991,
+      "max_lat": 51.0143616,
+      "extent_bbox_km2": 40.80406
+    },
+    {
+      "p_zone": "GLENDALE",
+      "feature_count": 1218,
+      "pipe_km": 102.105608,
+      "min_lon": -114.2110039,
+      "min_lat": 51.0124546,
+      "max_lon": -114.1410943,
+      "max_lat": 51.0619502,
+      "extent_bbox_km2": 26.963307
+    },
+    {
+      "p_zone": "BIG HILL EAST",
+      "feature_count": 829,
+      "pipe_km": 78.25476,
+      "min_lon": -114.1890236,
+      "min_lat": 51.1182088,
+      "max_lon": -114.0839559,
+      "max_lat": 51.1923249,
+      "extent_bbox_km2": 60.526087
+    },
+    {
+      "p_zone": "NOSE HILL",
+      "feature_count": 763,
+      "pipe_km": 69.096692,
+      "min_lon": -114.2568229,
+      "min_lat": 51.1193081,
+      "max_lon": -114.1452517,
+      "max_lat": 51.1408556,
+      "extent_bbox_km2": 18.695916
+    },
+    {
+      "p_zone": "UPPER SARCEE",
+      "feature_count": 626,
+      "pipe_km": 57.231822,
+      "min_lon": -114.1442074,
+      "min_lat": 50.9361426,
+      "max_lon": -114.1181828,
+      "max_lat": 50.9721639,
+      "extent_bbox_km2": 7.317967
+    },
+    {
+      "p_zone": "STRATHCONA",
+      "feature_count": 645,
+      "pipe_km": 52.007222,
+      "min_lon": -114.2118023,
+      "min_lat": 51.020972,
+      "max_lon": -114.1665125,
+      "max_lat": 51.0688413,
+      "extent_bbox_km2": 16.890986
+    },
+    {
+      "p_zone": "WESTVIEW",
+      "feature_count": 488,
+      "pipe_km": 46.897814,
+      "min_lon": -114.1404115,
+      "min_lat": 50.8950391,
+      "max_lon": -114.0988609,
+      "max_lat": 50.935999,
+      "extent_bbox_km2": 13.296703
+    },
+    {
+      "p_zone": "NOSE HILL EAST",
+      "feature_count": 477,
+      "pipe_km": 39.122907,
+      "min_lon": -114.189325,
+      "min_lat": 51.1312779,
+      "max_lon": -114.1183036,
+      "max_lat": 51.1854388,
+      "extent_bbox_km2": 29.895568
+    },
+    {
+      "p_zone": "BANKVIEW",
+      "feature_count": 564,
+      "pipe_km": 38.225988,
+      "min_lon": -114.1114635,
+      "min_lat": 51.0082585,
+      "max_lon": -114.0769002,
+      "max_lat": 51.0413573,
+      "extent_bbox_km2": 8.916888
+    },
+    {
+      "p_zone": "(unknown)",
+      "feature_count": 1466,
+      "pipe_km": 33.895687,
+      "min_lon": -114.2718092,
+      "min_lat": 50.8538012,
+      "max_lon": -113.9092309,
+      "max_lat": 51.1868428,
+      "extent_bbox_km2": 941.30031
+    },
+    {
+      "p_zone": "GREENVIEW",
+      "feature_count": 349,
+      "pipe_km": 31.444326,
+      "min_lon": -114.0599579,
+      "min_lat": 51.081606,
+      "max_lon": -114.0357191,
+      "max_lat": 51.1213419,
+      "extent_bbox_km2": 7.494813
+    },
+    {
+      "p_zone": "RESEARCH PARK",
+      "feature_count": 249,
+      "pipe_km": 21.017671,
+      "min_lon": -114.2566274,
+      "min_lat": 51.1472415,
+      "max_lon": -114.2161845,
+      "max_lat": 51.1585943,
+      "extent_bbox_km2": 3.568849
+    },
+    {
+      "p_zone": "DEER RUN",
+      "feature_count": 202,
+      "pipe_km": 19.616877,
+      "min_lon": -114.0202911,
+      "min_lat": 50.9150222,
+      "max_lon": -113.9925824,
+      "max_lat": 50.9379741,
+      "extent_bbox_km2": 4.967525
+    },
+    {
+      "p_zone": "CAMBRIAN HEIGHTS",
+      "feature_count": 217,
+      "pipe_km": 17.945183,
+      "min_lon": -114.0949066,
+      "min_lat": 51.081902,
+      "max_lon": -114.0717006,
+      "max_lat": 51.1064748,
+      "extent_bbox_km2": 4.438028
+    },
+    {
+      "p_zone": "WILDWOOD",
+      "feature_count": 257,
+      "pipe_km": 17.860027,
+      "min_lon": -114.1597492,
+      "min_lat": 51.0449927,
+      "max_lon": -114.141127,
+      "max_lat": 51.0588038,
+      "extent_bbox_km2": 2.003509
+    },
+    {
+      "p_zone": "PINE CREEK",
+      "feature_count": 188,
+      "pipe_km": 15.956324,
+      "min_lon": -114.0217374,
+      "min_lat": 50.8629653,
+      "max_lon": -113.9898383,
+      "max_lat": 50.8900667,
+      "extent_bbox_km2": 6.759922
+    },
+    {
+      "p_zone": "RIVERLANDS",
+      "feature_count": 146,
+      "pipe_km": 12.219351,
+      "min_lon": -113.990327,
+      "min_lat": 50.8581531,
+      "max_lon": -113.9688037,
+      "max_lat": 50.8794941,
+      "extent_bbox_km2": 3.592252
+    },
+    {
+      "p_zone": "BURNS INDUSTRIAL",
+      "feature_count": 84,
+      "pipe_km": 12.030783,
+      "min_lon": -114.0455095,
+      "min_lat": 50.9767139,
+      "max_lon": -114.0263233,
+      "max_lat": 51.0115444,
+      "extent_bbox_km2": 5.212209
+    },
+    {
+      "p_zone": "CRESTMONT",
+      "feature_count": 96,
+      "pipe_km": 8.708947,
+      "min_lon": -114.2754429,
+      "min_lat": 51.0815928,
+      "max_lon": -114.254335,
+      "max_lat": 51.0908741,
+      "extent_bbox_km2": 1.524978
+    },
+    {
+      "p_zone": "LAKEVIEW",
+      "feature_count": 64,
+      "pipe_km": 5.386218,
+      "min_lon": -114.1345334,
+      "min_lat": 50.9896717,
+      "max_lon": -114.1180182,
+      "max_lat": 50.9941259,
+      "extent_bbox_km2": 0.573783
+    },
+    {
+      "p_zone": "STARLIGHT",
+      "feature_count": 102,
+      "pipe_km": 5.043515,
+      "min_lon": -114.1589402,
+      "min_lat": 50.9160832,
+      "max_lon": -114.1426138,
+      "max_lat": 50.9208708,
+      "extent_bbox_km2": 0.610645
+    },
+    {
+      "p_zone": "SUNALTA",
+      "feature_count": 39,
+      "pipe_km": 3.223479,
+      "min_lon": -114.1179672,
+      "min_lat": 51.0378699,
+      "max_lon": -114.1134749,
+      "max_lat": 51.0440971,
+      "extent_bbox_km2": 0.21797
+    },
+    {
+      "p_zone": "UNIVERSITY HEIGHTS",
+      "feature_count": 32,
+      "pipe_km": 2.958099,
+      "min_lon": -114.1412019,
+      "min_lat": 51.0710406,
+      "max_lon": -114.1314225,
+      "max_lat": 51.0741868,
+      "extent_bbox_km2": 0.239572
+    },
+    {
+      "p_zone": "BRITANNIA",
+      "feature_count": 27,
+      "pipe_km": 2.382776,
+      "min_lon": -114.089445,
+      "min_lat": 51.0086253,
+      "max_lon": -114.081594,
+      "max_lat": 51.0145587,
+      "extent_bbox_km2": 0.363194
+    },
+    {
+      "p_zone": "EAGLE RIDGE",
+      "feature_count": 24,
+      "pipe_km": 1.845738,
+      "min_lon": -114.102384,
+      "min_lat": 50.9838266,
+      "max_lon": -114.0958333,
+      "max_lat": 50.9869524,
+      "extent_bbox_km2": 0.159736
+    },
+    {
+      "p_zone": "MAYFAIR",
+      "feature_count": 24,
+      "pipe_km": 1.57318,
+      "min_lon": -114.0947797,
+      "min_lat": 50.9946047,
+      "max_lon": -114.0908469,
+      "max_lat": 51.000046,
+      "extent_bbox_km2": 0.166897
+    },
+    {
+      "p_zone": "PATTERSON HEIGHTS",
+      "feature_count": 15,
+      "pipe_km": 1.324499,
+      "min_lon": -114.1875915,
+      "min_lat": 51.0688596,
+      "max_lon": -114.1834265,
+      "max_lat": 51.0732763,
+      "extent_bbox_km2": 0.14324
+    },
+    {
+      "p_zone": "VALLEY WOODS",
+      "feature_count": 13,
+      "pipe_km": 1.25626,
+      "min_lon": -114.2669991,
+      "min_lat": 51.0982714,
+      "max_lon": -114.2603105,
+      "max_lat": 51.1000031,
+      "extent_bbox_km2": 0.090136
+    },
+    {
+      "p_zone": "BELFAST",
+      "feature_count": 9,
+      "pipe_km": 1.15991,
+      "min_lon": -114.0218469,
+      "min_lat": 51.059454,
+      "max_lon": -114.0202868,
+      "max_lat": 51.065308,
+      "extent_bbox_km2": 0.071128
+    },
+    {
+      "p_zone": "NORTH HAVEN",
+      "feature_count": 10,
+      "pipe_km": 1.122712,
+      "min_lon": -114.0945569,
+      "min_lat": 51.0952535,
+      "max_lon": -114.0912635,
+      "max_lat": 51.1013083,
+      "extent_bbox_km2": 0.155182
+    },
+    {
+      "p_zone": "SCENIC BOW",
+      "feature_count": 15,
+      "pipe_km": 1.037106,
+      "min_lon": -114.2194629,
+      "min_lat": 51.1001474,
+      "max_lon": -114.2106924,
+      "max_lat": 51.1021698,
+      "extent_bbox_km2": 0.138026
+    },
+    {
+      "p_zone": "EDWORTHY PARK",
+      "feature_count": 2,
+      "pipe_km": 0.420175,
+      "min_lon": -114.1576169,
+      "min_lat": 51.061388,
+      "max_lon": -114.153296,
+      "max_lat": 51.0636771,
+      "extent_bbox_km2": 0.077032
+    },
+    {
+      "p_zone": "BEARSPAW PLANT",
+      "feature_count": 1,
+      "pipe_km": 0.404833,
+      "min_lon": -114.2335075,
+      "min_lat": 51.1047453,
+      "max_lon": -114.2309724,
+      "max_lat": 51.1059756,
+      "extent_bbox_km2": 0.024268
+    },
+    {
+      "p_zone": "TED'S OWN",
+      "feature_count": 4,
+      "pipe_km": 0.332695,
+      "min_lon": -114.1552309,
+      "min_lat": 51.1219806,
+      "max_lon": -114.1524577,
+      "max_lat": 51.1237409,
+      "extent_bbox_km2": 0.037969
+    },
+    {
+      "p_zone": "CARMA-SDA",
+      "feature_count": 1,
+      "pipe_km": 0.227837,
+      "min_lon": -114.2439549,
+      "min_lat": 51.1078256,
+      "max_lon": -114.2438291,
+      "max_lat": 51.1098685,
+      "extent_bbox_km2": 0.002
+    }
+  ]
+}

@@ -147,7 +147,7 @@ export class RiskConsequenceModel {
     return `${m}|${d}|${y}`;
   }
 
-  _scoreFromFloat01to4(x) {
+  scoreFromFloat01to4(x) {
     // CSV has LoF/CoF like 1.5, 2.5, 4.5, 5.0. Collapse to 1..4.
     if (typeof x !== "number" || !Number.isFinite(x)) return null;
     if (x <= 2.0) return 1;
@@ -167,14 +167,16 @@ export class RiskConsequenceModel {
       );
       const o = this._comboOverrides.get(key);
       if (o) {
-        const pof = this._scoreFromFloat01to4(o.LoF);
-        const cof = this._scoreFromFloat01to4(o.CoF);
+        const pof = this.scoreFromFloat01to4(o.LoF);
+        const cof = this.scoreFromFloat01to4(o.CoF);
         const pofFinal = pof ?? this.pofScoreFrom({ materialCode, installYear, statusInd });
         const cofFinal = cof ?? this.consequenceScoreFrom({ materialCode, diamMm, lengthM });
         const riskBin = this.riskBinFromScores(pofFinal, cofFinal);
         return {
           pof: pofFinal,
           cof: cofFinal,
+          pofFloat: typeof o.LoF === "number" && Number.isFinite(o.LoF) ? o.LoF : pofFinal,
+          cofFloat: typeof o.CoF === "number" && Number.isFinite(o.CoF) ? o.CoF : cofFinal,
           riskBin,
           riskClass: (o.RiskClass ?? "").toString().trim() || null,
           family: (o.family ?? "").toString().trim() || null,
@@ -186,6 +188,15 @@ export class RiskConsequenceModel {
     const pof = this.pofScoreFrom({ materialCode, installYear, statusInd });
     const cof = this.consequenceScoreFrom({ materialCode, diamMm, lengthM });
     const riskBin = this.riskBinFromScores(pof, cof);
-    return { pof, cof, riskBin, riskClass: null, family: null, source: "doc" };
+    return {
+      pof,
+      cof,
+      pofFloat: pof,
+      cofFloat: cof,
+      riskBin,
+      riskClass: null,
+      family: null,
+      source: "doc",
+    };
   }
 }
