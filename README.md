@@ -26,23 +26,23 @@ This writes:
 
 ## Style (Break Density)
 
-There is also a **Break density** style that colors mains by the number of breaks per km of pipe in the same `p_zone`.
+There is also a **Break density** style that colors mains by the number of breaks per km of pipe for the same pipe **material**.
 
-The break points in `data/Water_Main_Breaks_20251231.geojson` do not include `p_zone`, so the tool assigns each break to the *nearest* main feature and inherits its `p_zone`. It then aggregates:
+The break points in `data/Water_Main_Breaks_20251231.geojson` do not include material, so the tool assigns each break to the *nearest* main feature and inherits its material. It then aggregates:
 
-- `breaks_per_km = breaks_total / (pipe_km in p_zone)`
+- `breaks_per_km = breaks_total / (pipe_km in material)`
 
 To generate the required file for the overlay:
 
 ```bash
-python tools/break_density_by_p_zone.py
+python tools/break_density_by_material.py
 ```
 
 This writes:
 
-- `docs/break_density_by_p_zone.json` (used by the map)
-- `docs/break_density_by_p_zone.csv`
-- `docs/breaks_with_p_zone.csv` (debug)
+- `docs/break_density_by_material.json` (used by the map)
+- `docs/break_density_by_material.csv`
+- `docs/breaks_with_material.csv` (debug)
 
 ## Basemap
 

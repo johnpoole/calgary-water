@@ -1,0 +1,26 @@
+material,pipe_m,pipe_km,breaks_total,breaks_per_km,breaks_A,breaks_A_label,breaks_B,breaks_B_label,breaks_C,breaks_C_label,breaks_D,breaks_D_label,breaks_E,breaks_E_label,breaks_F,breaks_F_label,breaks_G,breaks_G_label,breaks_S,breaks_S_label
+AC,66663.0,66.663,397,5.955328,150,Full Circular,17,Split,41,Corrosion,137,Fitting,28,Joint,18,Diagonal Crack,49,Hole,19,Saddle
+BDI,2958.077,2.958077,11,3.718632,5,Full Circular,0,Split,8,Corrosion,2,Fitting,1,Joint,0,Diagonal Crack,1,Hole,0,Saddle
+CI,743109.003,743.109003,8386,11.28502,4194,Full Circular,478,Split,2483,Corrosion,918,Fitting,1357,Joint,170,Diagonal Crack,1441,Hole,63,Saddle
+CIPP,510.598,0.510598,6,11.750923,0,Full Circular,0,Split,2,Corrosion,0,Fitting,0,Joint,0,Diagonal Crack,6,Hole,0,Saddle
+CU,18891.632,18.891632,22,1.164537,9,Full Circular,1,Split,9,Corrosion,7,Fitting,1,Joint,1,Diagonal Crack,6,Hole,2,Saddle
+DI,74484.565,74.484565,993,13.331621,52,Full Circular,7,Split,252,Corrosion,334,Fitting,28,Joint,3,Diagonal Crack,593,Hole,32,Saddle
+ECI,21523.566,21.523566,198,9.199219,52,Full Circular,7,Split,56,Corrosion,28,Fitting,3,Joint,1,Diagonal Crack,108,Hole,3,Saddle
+FPVC,1526.853,1.526853,1,0.654942,0,Full Circular,0,Split,0,Corrosion,1,Fitting,0,Joint,0,Diagonal Crack,1,Hole,0,Saddle
+OTH,287.928,0.287928,0,0.0,0,Full Circular,0,Split,0,Corrosion,0,Fitting,0,Joint,0,Diagonal Crack,0,Hole,0,Saddle
+PCCP,259818.944,259.818944,103,0.39643,17,Full Circular,5,Split,32,Corrosion,9,Fitting,31,Joint,2,Diagonal Crack,33,Hole,0,Saddle
+PCI,18686.464,18.686464,153,8.187745,42,Full Circular,8,Split,40,Corrosion,31,Fitting,5,Joint,7,Diagonal Crack,69,Hole,0,Saddle
+PDI,367309.626,367.309626,3363,9.155763,108,Full Circular,18,Split,975,Corrosion,1403,Fitting,45,Joint,11,Diagonal Crack,1860,Hole,119,Saddle
+PE,42256.069,42.256069,499,11.808955,202,Full Circular,24,Split,134,Corrosion,40,Fitting,55,Joint,13,Diagonal Crack,189,Hole,6,Saddle
+PEG,25.999,0.025999,0,0.0,0,Full Circular,0,Split,0,Corrosion,0,Fitting,0,Joint,0,Diagonal Crack,0,Hole,0,Saddle
+PRIM,500.259,0.500259,6,11.993787,2,Full Circular,0,Split,1,Corrosion,0,Fitting,0,Joint,0,Diagonal Crack,3,Hole,1,Saddle
+PVC,2878318.183,2878.318183,14385,4.99771,4505,Full Circular,432,Split,4240,Corrosion,3047,Fitting,750,Joint,169,Diagonal Crack,6213,Hole,38,Saddle
+PVCG,140153.205,140.153205,3989,28.461711,1818,Full Circular,216,Split,948,Corrosion,461,Fitting,479,Joint,65,Diagonal Crack,1135,Hole,0,Saddle
+PVCU,295.742,0.295742,0,0.0,0,Full Circular,0,Split,0,Corrosion,0,Fitting,0,Joint,0,Diagonal Crack,0,Hole,0,Saddle
+ST,142507.309,142.507309,131,0.919251,16,Full Circular,5,Split,26,Corrosion,23,Fitting,30,Joint,3,Diagonal Crack,55,Hole,2,Saddle
+TUDI,10554.592,10.554592,89,8.432349,1,Full Circular,0,Split,38,Corrosion,42,Fitting,0,Joint,0,Diagonal Crack,36,Hole,16,Saddle
+TWD,4534.274,4.534274,276,60.869722,94,Full Circular,3,Split,114,Corrosion,27,Fitting,27,Joint,3,Diagonal Crack,130,Hole,4,Saddle
+UNK,917.467,0.917467,0,0.0,0,Full Circular,0,Split,0,Corrosion,0,Fitting,0,Joint,0,Diagonal Crack,0,Hole,0,Saddle
+YDI,583404.787,583.404787,4365,7.481941,991,Full Circular,116,Split,1257,Corrosion,1261,Fitting,284,Joint,51,Diagonal Crack,1691,Hole,208,Saddle
+YST,19352.623,19.352623,5,0.258363,0,Full Circular,0,Split,2,Corrosion,0,Fitting,0,Joint,0,Diagonal Crack,5,Hole,0,Saddle
+YUDI,20168.052,20.168052,62,3.074169,4,Full Circular,1,Split,11,Corrosion,36,Fitting,1,Joint,0,Diagonal Crack,16,Hole,6,Saddle
