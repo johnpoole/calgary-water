@@ -1,0 +1,8 @@
+# Survival analysis + data wrangling
+lifelines>=0.27
+pandas>=2.0
+numpy>=1.24
+
+# Spatial linkage (break points -> nearest main)
+shapely>=2.0
+pyproj>=3.6

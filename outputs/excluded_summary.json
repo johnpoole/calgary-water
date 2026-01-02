@@ -1,0 +1,7 @@
+{
+  "excluded_missing_install_year": 2,
+  "rejected_failure_before_install": 4373,
+  "rejected_non_positive_exposure": 10,
+  "n_rows": 56355,
+  "n_events": 6552
+}

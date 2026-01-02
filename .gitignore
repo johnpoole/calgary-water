@@ -1,2 +1,5 @@
 # Generated review artifacts (do not commit)
 docs/distinct_material_diameter_year_with_risk.csv
+
+# Generated Cox PH outputs
+outputs/cox/
