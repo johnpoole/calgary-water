@@ -29,6 +29,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from numbers import Integral
+
 import numpy as np
 import pandas as pd
 
@@ -164,6 +166,8 @@ def ordinal_days(d: date) -> float:
 @dataclass(frozen=True)
 class LinkConfig:
     max_break_to_main_m: float
+    within_m: float = 3.0
+    pick: str = "largest"  # 'nearest' | 'largest'
     # EPSG:3400 is commonly used for Alberta 10TM AEP; good local meters.
     # If you need a different CRS, adjust epsg_to.
     epsg_from: int = 4326
@@ -173,10 +177,11 @@ class LinkConfig:
 def build_spatial_index_for_mains(
     mains_features: List[Dict[str, Any]],
     transformer: Transformer,
-) -> Tuple[List[str], List[Any], STRtree, Dict[int, int]]:
-    """Returns (main_ids, projected_line_geoms, STRtree, geom_id_to_index)."""
+) -> Tuple[List[str], List[Any], List[Optional[float]], STRtree, Dict[int, int]]:
+    """Returns (main_ids, projected_line_geoms, diameter_mm, STRtree, geom_id_to_index)."""
     main_ids: List[str] = []
     geoms: List[Any] = []
+    diams: List[Optional[float]] = []
 
     # shapely geometries are immutable; we keep them aligned by index.
     for f in mains_features:
@@ -192,13 +197,14 @@ def build_spatial_index_for_mains(
         g_proj = _transform_geom(g, transformer)
         main_ids.append(gid)
         geoms.append(g_proj)
+        diams.append(parse_diameter_mm(props.get("diam")))
 
     if not geoms:
         raise ValueError("No valid main geometries for spatial indexing.")
 
     tree = STRtree(geoms)
     geom_id_to_index = {id(g): i for i, g in enumerate(geoms)}
-    return main_ids, geoms, tree, geom_id_to_index
+    return main_ids, geoms, diams, tree, geom_id_to_index
 
 
 def _transform_geom(g, transformer: Transformer):
@@ -223,6 +229,72 @@ def _transform_geom(g, transformer: Transformer):
     return shape(geo2)
 
 
+def _best_candidate_within(
+    bp,
+    within_m: float,
+    pick: str,
+    main_geoms: List[Any],
+    main_diams: List[Optional[float]],
+    tree: STRtree,
+) -> Optional[Tuple[int, float]]:
+    """Return (main_index, distance_m) for the best candidate within radius.
+
+    pick:
+      - 'largest': largest diameter_mm, tie-break closer then index
+      - 'nearest': closest distance, tie-break by index
+    """
+
+    if within_m <= 0:
+        return None
+
+    try:
+        region = bp.buffer(float(within_m))
+    except Exception:
+        return None
+
+    hits = tree.query(region)
+    pick_mode = (pick or "nearest").strip().lower()
+
+    best_idx: Optional[int] = None
+    best_dist = float("inf")
+    best_diam = -1.0
+
+    for hit in hits:
+        if not isinstance(hit, Integral):
+            # Older shapely may return geometries; let caller fall back.
+            continue
+        idx = int(hit)
+        if idx < 0 or idx >= len(main_geoms):
+            continue
+        g = main_geoms[idx]
+
+        try:
+            d = float(bp.distance(g))
+        except Exception:
+            continue
+        if d > float(within_m):
+            continue
+
+        if pick_mode == "largest":
+            diam = float(main_diams[idx] or -1.0)
+            if diam > best_diam:
+                best_diam = diam
+                best_dist = d
+                best_idx = idx
+            elif diam == best_diam:
+                if d < best_dist or (d == best_dist and idx < int(best_idx or 0)):
+                    best_dist = d
+                    best_idx = idx
+        else:
+            if d < best_dist or (d == best_dist and idx < int(best_idx or 0)):
+                best_dist = d
+                best_idx = idx
+
+    if best_idx is None:
+        return None
+    return int(best_idx), float(best_dist)
+
+
 def link_breaks_to_mains_first_failure(
     mains_features: List[Dict[str, Any]],
     breaks_features: List[Dict[str, Any]],
@@ -231,12 +303,13 @@ def link_breaks_to_mains_first_failure(
 ) -> Dict[str, date]:
     """Returns mapping main_globalid -> first_failure_date.
 
-    Assumption:
-      Break point events are linked to the nearest main (within max distance).
+        Assumption:
+            Break point events are linked to the best main within `within_m` (default: largest).
+            If no candidate is within that radius, falls back to nearest main within max distance.
     """
 
     transformer = Transformer.from_crs(cfg.epsg_from, cfg.epsg_to, always_xy=True)
-    main_ids, main_geoms, tree, geom_id_to_index = build_spatial_index_for_mains(mains_features, transformer)
+    main_ids, main_geoms, main_diams, tree, geom_id_to_index = build_spatial_index_for_mains(mains_features, transformer)
 
     first_failure: Dict[str, date] = {}
     matched_rows: List[Tuple[str, str, float, str]] = []
@@ -259,37 +332,51 @@ def link_breaks_to_mains_first_failure(
             continue
         bp = _transform_geom(shape(geom), transformer)
 
-        # Robust nearest lookup across Shapely versions.
-        # Prefer query_nearest (returns indices) when available; fall back to nearest(geom).
         idx = None
         dist_m = None
-        nearest_geom = None
-        if hasattr(tree, "query_nearest"):
-            try:
-                idxs, dists = tree.query_nearest(bp, return_distance=True)
-                idx_arr = np.atleast_1d(idxs)
-                dist_arr = np.atleast_1d(dists)
-                if idx_arr.size == 0:
-                    continue
-                idx = int(idx_arr[0])
-                if idx < 0 or idx >= len(main_geoms):
-                    continue
-                nearest_geom = main_geoms[idx]
-                dist_m = float(dist_arr[0]) if dist_arr.size else float(bp.distance(nearest_geom))
-            except TypeError:
-                # Older shapely signatures
-                pass
 
-        if idx is None or nearest_geom is None or dist_m is None:
-            nearest = tree.nearest(bp)
-            if nearest is None:
-                continue
-            nearest_geom = nearest
-            idx2 = geom_id_to_index.get(id(nearest_geom))
-            if idx2 is None:
-                continue
-            idx = int(idx2)
-            dist_m = float(bp.distance(nearest_geom))
+        hit = _best_candidate_within(
+            bp,
+            within_m=float(cfg.within_m),
+            pick=str(cfg.pick),
+            main_geoms=main_geoms,
+            main_diams=main_diams,
+            tree=tree,
+        )
+
+        if hit is not None:
+            idx, dist_m = hit
+        else:
+            # Robust nearest lookup across Shapely versions.
+            # Prefer query_nearest (returns indices) when available; fall back to nearest(geom).
+            nearest_geom = None
+            if hasattr(tree, "query_nearest"):
+                try:
+                    idxs, dists = tree.query_nearest(bp, return_distance=True)
+                    idx_arr = np.atleast_1d(idxs)
+                    dist_arr = np.atleast_1d(dists)
+                    if idx_arr.size == 0:
+                        continue
+                    idx0 = int(idx_arr[0])
+                    if idx0 < 0 or idx0 >= len(main_geoms):
+                        continue
+                    nearest_geom = main_geoms[idx0]
+                    dist0 = float(dist_arr[0]) if dist_arr.size else float(bp.distance(nearest_geom))
+                    idx, dist_m = idx0, dist0
+                except TypeError:
+                    # Older shapely signatures
+                    pass
+
+            if idx is None or dist_m is None:
+                nearest = tree.nearest(bp)
+                if nearest is None:
+                    continue
+                nearest_geom = nearest
+                idx2 = geom_id_to_index.get(id(nearest_geom))
+                if idx2 is None:
+                    continue
+                idx = int(idx2)
+                dist_m = float(bp.distance(nearest_geom))
 
         gid = main_ids[int(idx)]
         if dist_m > cfg.max_break_to_main_m:
@@ -321,7 +408,7 @@ def link_breaks_to_mains_first_failure(
             "matched_within_max_m": n_matched,
             "rejected_too_far": n_too_far,
             "unique_mains_with_failure": len(first_failure),
-            "assumption": f"nearest main within {cfg.max_break_to_main_m}m",
+            "assumption": f"{cfg.pick} within {cfg.within_m}m else nearest within {cfg.max_break_to_main_m}m",
         },
     )
 
@@ -651,6 +738,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--road-proximity", default="docs/road_proximity_by_main.json")
     ap.add_argument("--cutoff", default="2025-12-31", help="Observation cutoff date (YYYY-MM-DD).")
     ap.add_argument("--max-break-to-main-m", type=float, default=50.0, help="Max distance to link a break to a main.")
+    ap.add_argument(
+        "--break-link-within-m",
+        type=float,
+        default=3.0,
+        help="Prefer linking breaks to a main within this radius (meters).",
+    )
+    ap.add_argument(
+        "--break-link-pick",
+        type=str,
+        default="largest",
+        choices=["largest", "nearest"],
+        help="When multiple mains are within --break-link-within-m, choose 'largest' (diameter) or 'nearest'.",
+    )
     ap.add_argument("--out", default="outputs")
 
     args = ap.parse_args(argv)
@@ -675,7 +775,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     breaks_feats = load_geojson_features(breaks_path)
     road_by_main = load_road_proximity_by_main(road_path)
 
-    link_cfg = LinkConfig(max_break_to_main_m=float(args.max_break_to_main_m))
+    link_cfg = LinkConfig(
+        max_break_to_main_m=float(args.max_break_to_main_m),
+        within_m=float(args.break_link_within_m),
+        pick=str(args.break_link_pick),
+    )
 
     # Link breaks to mains (first failure only).
     first_failure_by_main = link_breaks_to_mains_first_failure(

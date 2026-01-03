@@ -1,0 +1,30 @@
+{
+  "rules": [
+    {
+      "start_year": 1900,
+      "end_year": 1960,
+      "base_risk_score": 3.0,
+      "label": "High"
+    },
+    {
+      "start_year": 1961,
+      "end_year": 1980,
+      "base_risk_score": 2.0,
+      "label": "Medium"
+    },
+    {
+      "start_year": 1981,
+      "end_year": 2100,
+      "base_risk_score": 1.0,
+      "label": "Low"
+    }
+  ],
+  "default_missing_year": {
+    "base_risk_score": 2.0,
+    "label": "Unknown"
+  },
+  "default_out_of_range": {
+    "base_risk_score": 2.0,
+    "label": "Unknown"
+  }
+}

@@ -30,11 +30,15 @@ There is also a **Break density** style that colors mains by the number of break
 
 The break points in `data/Water_Main_Breaks_20251231.geojson` do not include material, so the tool assigns each break to the *nearest* main feature and inherits its material. It then aggregates:
 
+- We first generate a break→main link table that includes **every pipe within 2m** of each break point.
+- The break density tool counts **one break per link row** (so a single break near an intersection can count for multiple pipes/materials).
+
 - `breaks_per_km = breaks_total / (pipe_km in material)`
 
 To generate the required file for the overlay:
 
 ```bash
+python tools/link_breaks_to_mains.py --within-m 2
 python tools/break_density_by_material.py
 ```
 

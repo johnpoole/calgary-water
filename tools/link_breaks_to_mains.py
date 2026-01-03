@@ -27,6 +27,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from numbers import Integral
+
 import numpy as np
 
 try:
@@ -191,12 +193,118 @@ def nearest_main(
     return int(idx), float(dist_m)
 
 
+def mains_within_radius(
+    bp_proj,
+    within_m: float,
+    main_geoms: List[Any],
+    tree: STRtree,
+    geom_id_to_index: Dict[int, int],
+) -> List[Tuple[int, float]]:
+    if within_m <= 0:
+        return []
+
+    # Query by buffered point to get candidates (bbox-based prefilter).
+    try:
+        region = bp_proj.buffer(float(within_m))
+    except Exception:
+        return []
+
+    hits = tree.query(region)
+    out: List[Tuple[int, float]] = []
+
+    for hit in hits:
+        # Shapely 2 returns indices (ints); older Shapely may return geometries.
+        if isinstance(hit, Integral):
+            idx = int(hit)
+            if idx < 0 or idx >= len(main_geoms):
+                continue
+            g = main_geoms[idx]
+        else:
+            g = hit
+            idx = geom_id_to_index.get(id(g))
+            if idx is None:
+                continue
+        try:
+            d = float(bp_proj.distance(g))
+        except Exception:
+            continue
+        if d <= float(within_m):
+            out.append((int(idx), d))
+
+    # Deterministic ordering: closest first, then index.
+    out.sort(key=lambda t: (t[1], t[0]))
+    return out
+
+
+def _diam_value(raw: Any) -> float:
+    try:
+        v = float(raw)
+    except Exception:
+        return -1.0
+    if not np.isfinite(v) or v <= 0:
+        return -1.0
+    return float(v)
+
+
+def pick_largest_within_radius(
+    bp_proj,
+    within_m: float,
+    main_geoms: List[Any],
+    main_props: List[Dict[str, Any]],
+    tree: STRtree,
+    geom_id_to_index: Dict[int, int],
+) -> Optional[Tuple[int, float]]:
+    """Pick the largest-diameter main within radius. Tie-break: closest then index."""
+    matches = mains_within_radius(
+        bp_proj,
+        within_m=within_m,
+        main_geoms=main_geoms,
+        tree=tree,
+        geom_id_to_index=geom_id_to_index,
+    )
+    if not matches:
+        return None
+
+    best_idx: Optional[int] = None
+    best_dist: float = float("inf")
+    best_diam: float = -1.0
+
+    for idx, dist_m in matches:
+        diam = _diam_value((main_props[idx] or {}).get("diam"))
+        if diam > best_diam:
+            best_diam = diam
+            best_dist = float(dist_m)
+            best_idx = int(idx)
+        elif diam == best_diam:
+            # tie-break: closer, then stable index
+            if float(dist_m) < best_dist or (float(dist_m) == best_dist and int(idx) < int(best_idx or 0)):
+                best_dist = float(dist_m)
+                best_idx = int(idx)
+
+    if best_idx is None:
+        return None
+    return int(best_idx), float(best_dist)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mains", type=Path, default=DEFAULT_MAINS)
     ap.add_argument("--breaks", type=Path, default=DEFAULT_BREAKS)
     ap.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
     ap.add_argument("--max-break-to-main-m", type=float, default=50.0)
+    ap.add_argument(
+        "--within-m",
+        type=float,
+        default=None,
+        help="If set, restrict candidates to mains within this distance (meters).",
+    )
+    ap.add_argument(
+        "--mode",
+        type=str,
+        default="nearest",
+        choices=["nearest", "multi", "largest"],
+        help="How to match breaks to mains: nearest (default), multi (emit all within --within-m), largest (pick largest diam within --within-m).",
+    )
     ap.add_argument(
         "--epsg-to",
         type=int,
@@ -228,14 +336,20 @@ def main() -> int:
     )
 
     out_features: List[Dict[str, Any]] = []
-    matched_rows: List[Tuple[str, str, float, str]] = []
+
+    # CSV rows:
+    # - mode=nearest/largest: one row per break
+    # - mode=multi: one row per (break, main match)
+    # Keep a compact stable schema.
+    matched_rows: List[Dict[str, Any]] = []
 
     n_total = 0
     n_point = 0
     n_matched = 0
     n_too_far = 0
+    n_multi = 0
 
-    for bf in breaks_features:
+    for break_idx, bf in enumerate(breaks_features, start=1):
         n_total += 1
         geom = bf.get("geometry")
         if not geom:
@@ -251,55 +365,129 @@ def main() -> int:
         n_point += 1
 
         bp_proj = _transform_geom(shp, transformer)
-        hit = nearest_main(bp_proj, main_geoms, main_ids, tree, geom_id_to_index)
-        if hit is None:
-            continue
-        idx, dist_m = hit
+        matches: List[Tuple[int, float]]
+        mode = (args.mode or "nearest").strip().lower()
 
-        if dist_m > float(args.max_break_to_main_m):
-            n_too_far += 1
-            continue
+        if mode in ("multi", "largest") and args.within_m is None:
+            raise SystemExit("--mode multi/largest requires --within-m")
 
-        n_matched += 1
-        m = main_props[idx]
-
-        props = dict(bf.get("properties") or {})
-        props["matched_main_globalid"] = m.get("globalid")
-        props["matched_main_material"] = m.get("material")
-        props["matched_main_diam"] = m.get("diam")
-        props["matched_main_year"] = m.get("year")
-        props["match_distance_m"] = round(float(dist_m), 3)
-
-        out_features.append(
-            {
-                "type": "Feature",
-                "geometry": bf.get("geometry"),
-                "properties": props,
-            }
-        )
-
-        matched_rows.append(
-            (
-                str(props.get("matched_main_globalid") or ""),
-                str(props.get("break_date") or ""),
-                float(dist_m),
-                str(props.get("break_type") or ""),
+        if mode == "multi":
+            matches = mains_within_radius(
+                bp_proj,
+                within_m=float(args.within_m),
+                main_geoms=main_geoms,
+                tree=tree,
+                geom_id_to_index=geom_id_to_index,
             )
-        )
+            if not matches:
+                n_too_far += 1
+                continue
+            n_multi += len(matches)
+        elif mode == "largest":
+            hit = pick_largest_within_radius(
+                bp_proj,
+                within_m=float(args.within_m),
+                main_geoms=main_geoms,
+                main_props=main_props,
+                tree=tree,
+                geom_id_to_index=geom_id_to_index,
+            )
+            if hit is None:
+                # fall back: nearest within max distance
+                hit2 = nearest_main(bp_proj, main_geoms, main_ids, tree, geom_id_to_index)
+                if hit2 is None:
+                    continue
+                idx2, dist2 = hit2
+                if dist2 > float(args.max_break_to_main_m):
+                    n_too_far += 1
+                    continue
+                matches = [(idx2, dist2)]
+            else:
+                matches = [hit]
+        else:
+            # mode == nearest
+            hit = nearest_main(bp_proj, main_geoms, main_ids, tree, geom_id_to_index)
+            if hit is None:
+                continue
+            idx, dist_m = hit
+            if dist_m > float(args.max_break_to_main_m):
+                n_too_far += 1
+                continue
+            matches = [(idx, dist_m)]
 
-    logger.info(
-        "Link summary: total=%d point=%d matched=%d too_far=%d max_m=%.1f",
-        n_total,
-        n_point,
-        n_matched,
-        n_too_far,
-        float(args.max_break_to_main_m),
-    )
+        for idx, dist_m in matches:
+            n_matched += 1
+            m = main_props[idx]
+
+            props = dict(bf.get("properties") or {})
+            props["break_index"] = break_idx
+            props["matched_main_globalid"] = m.get("globalid")
+            props["matched_main_material"] = m.get("material")
+            props["matched_main_diam"] = m.get("diam")
+            props["matched_main_year"] = m.get("year")
+            props["match_distance_m"] = round(float(dist_m), 3)
+
+            out_features.append(
+                {
+                    "type": "Feature",
+                    "geometry": bf.get("geometry"),
+                    "properties": props,
+                }
+            )
+
+            matched_rows.append(
+                {
+                    "break_index": break_idx,
+                    "break_date": str(props.get("break_date") or ""),
+                    "break_type": str(props.get("break_type") or ""),
+                    "main_globalid": str(m.get("globalid") or ""),
+                    "main_material": str(m.get("material") or ""),
+                    "main_diam": m.get("diam"),
+                    "main_year": m.get("year"),
+                    "distance_m": round(float(dist_m), 3),
+                }
+            )
+
+    if mode == "multi":
+        logger.info(
+            "Link summary (multi): total=%d point=%d matched_rows=%d breaks_without_match=%d within_m=%.3f",
+            n_total,
+            n_point,
+            n_matched,
+            n_too_far,
+            float(args.within_m),
+        )
+        logger.info("Total (break,main) links emitted: %d", n_multi)
+    elif mode == "largest":
+        logger.info(
+            "Link summary (largest): total=%d point=%d matched=%d too_far=%d within_m=%.3f (fallback max_m=%.1f)",
+            n_total,
+            n_point,
+            n_matched,
+            n_too_far,
+            float(args.within_m) if args.within_m is not None else float("nan"),
+            float(args.max_break_to_main_m),
+        )
+    else:
+        logger.info(
+            "Link summary (nearest): total=%d point=%d matched=%d too_far=%d max_m=%.1f",
+            n_total,
+            n_point,
+            n_matched,
+            n_too_far,
+            float(args.max_break_to_main_m),
+        )
 
     args.outdir.mkdir(parents=True, exist_ok=True)
 
-    out_geo = args.outdir / "breaks_enriched.geojson"
-    out_csv = args.outdir / "breaks_to_mains.csv"
+    if mode == "multi" and args.within_m is not None:
+        suffix = f"_within_{float(args.within_m):g}m"
+    elif mode == "largest" and args.within_m is not None:
+        suffix = f"_largest_within_{float(args.within_m):g}m"
+    else:
+        suffix = ""
+    out_geo = args.outdir / f"breaks_enriched{suffix}.geojson"
+    out_csv = args.outdir / f"breaks_to_mains{suffix}.csv"
 
     write_geojson(
         out_geo,
@@ -310,9 +498,26 @@ def main() -> int:
     )
 
     with out_csv.open("w", encoding="utf-8", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["main_globalid", "break_date", "distance_m", "break_type"])
-        for row in sorted(matched_rows, key=lambda r: (r[0], r[1], r[2])):
+        fieldnames = [
+            "break_index",
+            "break_date",
+            "break_type",
+            "main_globalid",
+            "main_material",
+            "main_diam",
+            "main_year",
+            "distance_m",
+        ]
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for row in sorted(
+            matched_rows,
+            key=lambda r: (
+                int(r.get("break_index") or 0),
+                float(r.get("distance_m") or 0.0),
+                str(r.get("main_globalid") or ""),
+            ),
+        ):
             w.writerow(row)
 
     print("Wrote:")

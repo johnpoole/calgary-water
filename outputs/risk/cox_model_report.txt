@@ -1,0 +1,36 @@
+Cox model fit summary
+Concordance index (c-statistic): 0.9635
+
+Coefficient preview (coef, HR, 95% CI):
+  mat_CI coef=1.1873 HR=3.2784 95%CI=[3.1091, 3.4568] p=0
+  mat_TWD coef=1.1240 HR=3.0772 95%CI=[1.6907, 5.6007] p=0.000234
+  mat_ECI coef=0.7781 HR=2.1774 95%CI=[1.7884, 2.6512] p=9.36e-15
+  mat_PCI coef=0.7259 HR=2.0666 95%CI=[1.6521, 2.5852] p=2.08e-10
+  mat_PVC coef=-0.7163 HR=0.4885 95%CI=[0.4667, 0.5114] p=1.46e-206
+  mat_DI coef=0.6386 HR=1.8937 95%CI=[1.7030, 2.1058] p=4.35e-32
+  mat_AC coef=0.6239 HR=1.8662 95%CI=[1.6213, 2.1480] p=3.49e-18
+  mat_CU coef=-0.6118 HR=0.5424 95%CI=[0.4413, 0.6665] p=5.92e-09
+  mat_PEG coef=-0.5817 HR=0.5590 95%CI=[0.0040, 77.2139] p=0.817
+  mat_UNK coef=-0.5800 HR=0.5599 95%CI=[0.3336, 0.9396] p=0.0281
+
+Top coefficients by |coef|:
+  mat_CI: coef=1.1873 HR=3.2784
+  mat_TWD: coef=1.1240 HR=3.0772
+  mat_ECI: coef=0.7781 HR=2.1774
+  mat_PCI: coef=0.7259 HR=2.0666
+  mat_PVC: coef=-0.7163 HR=0.4885
+  mat_DI: coef=0.6386 HR=1.8937
+  mat_AC: coef=0.6239 HR=1.8662
+  mat_CU: coef=-0.6118 HR=0.5424
+  mat_PEG: coef=-0.5817 HR=0.5590
+  mat_UNK: coef=-0.5800 HR=0.5599
+  mat_PDI: coef=0.5594 HR=1.7496
+  mat_PVCG: coef=-0.5069 HR=0.6023
+  mat_YST: coef=-0.4968 HR=0.6084
+  mat_OTH: coef=-0.3844 HR=0.6809
+  mat_TUDI: coef=0.3430 HR=1.4092
+  road_collector: coef=0.3151 HR=1.3704
+  mat_BDI: coef=-0.3022 HR=0.7392
+  mat_PE: coef=-0.2579 HR=0.7727
+  mat_YUDI: coef=-0.2313 HR=0.7935
+  mat_PRIM: coef=-0.1997 HR=0.8190
