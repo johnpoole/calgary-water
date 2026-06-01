@@ -427,18 +427,17 @@ function renderFlowMap() {
 
   const legendX = margin.left;
   const legendY = height - 58;
-  const legendValues = [flowScaleMax * 0.25, flowScaleMax * 0.6, SR1_FLOW_TRIGGER_M3S]
-    .filter((value, index, values) => index === 0 || Math.abs(value - values[index - 1]) > 0.1);
+  const legendValues = d3.range(1, 11).map((step) => flowScaleMax * step / 10);
 
   const legendGroup = svg.append("g")
     .attr("transform", `translate(${legendX},${legendY})`);
 
   legendValues.forEach((value, index) => {
-    const xOffset = index * 170;
+    const xOffset = index * 70;
 
     legendGroup.append("line")
       .attr("x1", xOffset)
-      .attr("x2", xOffset + 52)
+      .attr("x2", xOffset + 42)
       .attr("y1", 0)
       .attr("y2", 0)
       .attr("stroke", color(value))
@@ -450,7 +449,7 @@ function renderFlowMap() {
       .attr("class", "flow-map-meta")
       .attr("x", xOffset)
       .attr("y", 30)
-      .text(value === SR1_FLOW_TRIGGER_M3S ? `SR1 ${formatNumber(value, 0)} m3/s` : `${formatNumber(value, 1)} m3/s`);
+      .text(value === SR1_FLOW_TRIGGER_M3S ? `SR1 ${formatNumber(value, 0)}` : formatNumber(value, 0));
   });
 }
 
