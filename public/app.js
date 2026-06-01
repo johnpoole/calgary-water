@@ -53,6 +53,14 @@ function formatTime(value) {
   }).format(new Date(value));
 }
 
+function displayStationName(station) {
+  return station.name.replace("Clem Gardiner Bridge", "Clem Gardner Bridge");
+}
+
+function displayStationShortName(station) {
+  return station.shortName.replace("Clem Gardiner Bridge", "Clem Gardner Bridge");
+}
+
 async function loadData() {
   const days = rangeSelect.value;
   statusStrip.className = "status-strip";
@@ -111,7 +119,7 @@ function renderCards(metric) {
       <article class="station-card ${unavailable ? "unavailable" : ""}">
         <div class="station-name">
           <div>
-            <strong>${station.shortName}</strong>
+            <strong>${displayStationShortName(station)}</strong>
             <div class="station-id">${station.id}</div>
           </div>
           <span class="station-id">${station.downstreamKm} km</span>
@@ -149,7 +157,7 @@ function renderChain() {
     <div class="chain-item">
       <div class="chain-dot">${index + 1}</div>
       <div>
-        <strong>${station.name}</strong>
+        <strong>${displayStationName(station)}</strong>
         <div class="chain-meta">${station.id} · ${station.downstreamKm} km downstream · ${formatNumber(station.drainageAreaKm2, 0)} km2 drainage area</div>
       </div>
     </div>
@@ -322,7 +330,7 @@ function renderFlowMap() {
     .attr("x", 0)
     .attr("y", (point, index) => index % 2 === 0 ? -20 : 30)
     .attr("text-anchor", "middle")
-    .text((point) => point.station.shortName);
+    .text((point) => displayStationShortName(point.station));
 
   stationGroups.append("text")
     .attr("class", "flow-map-meta")
@@ -560,7 +568,7 @@ function renderChart(metric) {
   for (const item of series) {
     legend.append("span")
       .attr("class", "legend-item")
-      .html(`<span class="legend-swatch" style="background:${item.color}"></span>${item.station.shortName}`);
+      .html(`<span class="legend-swatch" style="background:${item.color}"></span>${displayStationShortName(item.station)}`);
   }
 }
 
@@ -674,7 +682,7 @@ function showTooltip(event, points, metric) {
   }
 
   const rows = points.map((item) => `
-    <div><strong style="color:${item.color}">${item.station.shortName}</strong>: ${formatNumber(item.point.value)} ${metricConfig[metric].unit}</div>
+    <div><strong style="color:${item.color}">${displayStationShortName(item.station)}</strong>: ${formatNumber(item.point.value)} ${metricConfig[metric].unit}</div>
   `).join("");
   tooltip.innerHTML = `<div>${formatTime(points[0]?.point?.timestamp)}</div>${rows}`;
   tooltip.style.left = `${Math.min(window.innerWidth - 300, event.clientX + 14)}px`;
