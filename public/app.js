@@ -419,26 +419,28 @@ function renderFlowMap() {
   const legendValues = [historicalMaxFlow * 0.25, historicalMaxFlow * 0.6, historicalMaxFlow]
     .filter((value, index, values) => index === 0 || Math.abs(value - values[index - 1]) > 0.1);
 
-  let cursor = legendX;
-  for (const value of legendValues) {
-    svg.append("line")
-      .attr("x1", cursor)
-      .attr("x2", cursor + 42)
-      .attr("y1", legendY)
-      .attr("y2", legendY)
+  const legendGroup = svg.append("g")
+    .attr("transform", `translate(${legendX},${legendY})`);
+
+  legendValues.forEach((value, index) => {
+    const xOffset = index * 170;
+
+    legendGroup.append("line")
+      .attr("x1", xOffset)
+      .attr("x2", xOffset + 52)
+      .attr("y1", 0)
+      .attr("y2", 0)
       .attr("stroke", color(value))
       .attr("stroke-width", strokeWidth(value))
       .attr("stroke-linecap", "round")
       .attr("opacity", 0.82);
 
-    svg.append("text")
+    legendGroup.append("text")
       .attr("class", "flow-map-meta")
-      .attr("x", cursor + 52)
-      .attr("y", legendY + 4)
+      .attr("x", xOffset)
+      .attr("y", 30)
       .text(`${formatNumber(value, 1)} m3/s`);
-
-    cursor += 150;
-  }
+  });
 
   svg.append("text")
     .attr("class", "flow-map-note")
