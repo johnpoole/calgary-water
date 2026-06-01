@@ -23,16 +23,6 @@ const STATIONS = [
     current: true
   },
   {
-    id: "05BJ011",
-    name: "Elbow River at Clem Gardiner Bridge",
-    shortName: "Clem Gardiner Bridge",
-    downstreamKm: 12,
-    latitude: 51.04167,
-    longitude: -114.46667,
-    drainageAreaKm2: 871,
-    current: false
-  },
-  {
     id: "05BJ010",
     name: "Elbow River at Sarcee Bridge",
     shortName: "Sarcee Bridge",
@@ -49,16 +39,6 @@ const STATIONS = [
     downstreamKm: 34,
     latitude: 51.00056,
     longitude: -114.0975,
-    drainageAreaKm2: 1230,
-    current: false
-  },
-  {
-    id: "05BJ005",
-    name: "Elbow River above Glenmore Dam",
-    shortName: "Above Glenmore Dam",
-    downstreamKm: 35,
-    latitude: 51.0,
-    longitude: -114.1,
     drainageAreaKm2: 1230,
     current: false
   },
@@ -80,7 +60,7 @@ const STORAGE_LOCATIONS = [
     name: "Springbank Off-stream Reservoir (SR1)",
     source: "Alberta Springbank Off-stream Reservoir public project information",
     proxyStationId: "05BJ011",
-    proxyStationName: "Elbow River at Clem Gardiner Bridge",
+    proxyStationName: "Elbow River at Clem Gardner Bridge",
     capacityM3: 70_200_000,
     status: "No public live storage or diversion feed found",
     note: "The Clem Gardiner Bridge gauge is at the SR1 reach and would be a useful intake-area flow proxy if data are published. It is not, by itself, measured diverted flow into the reservoir."

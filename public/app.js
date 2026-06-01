@@ -342,7 +342,7 @@ function renderFlowMap() {
       return reading ? `${formatNumber(reading.value, 1)} m3/s` : "no flow";
     });
 
-  const aboveDam = points.find((point) => point.station.id === "05BJ005");
+  const aboveDam = points.find((point) => point.station.id === "05BJ001");
   const reservoirPoint = aboveDam ? {
     x: Math.max(margin.left + 24, aboveDam.x - 44),
     y: aboveDam.y - 58
@@ -382,11 +382,11 @@ function renderFlowMap() {
       .text(glenmoreStorage ? `${formatNumber(glenmoreStorage.storageDam3, 0)} dam3` : "");
   }
 
-  const clemGardiner = points.find((point) => point.station.id === "05BJ011");
+  const sr1Reference = points.find((point) => point.station.id === "05BJ004");
   const sr1Location = storageData?.locations?.find((location) => location.id === "sr1");
-  const sr1Point = clemGardiner ? {
-    x: clemGardiner.x,
-    y: Math.max(margin.top + 58, clemGardiner.y - 78)
+  const sr1Point = sr1Reference ? {
+    x: sr1Reference.x + 56,
+    y: Math.max(margin.top + 58, sr1Reference.y - 78)
   } : null;
 
   if (sr1Point && sr1Location) {
