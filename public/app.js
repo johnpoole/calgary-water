@@ -20,6 +20,8 @@ const metricConfig = {
   level: { parameter: "46", label: "Level", unit: "m" }
 };
 
+const SR1_FLOW_TRIGGER_M3S = 160;
+const GLENMORE_ACTIVE_FLOOD_STORAGE_DAM3 = 10_000;
 const colors = ["#0f7f8c", "#395f9d", "#7b8b2e", "#c17427", "#8f5542"];
 let latestData = null;
 let storageData = null;
@@ -244,14 +246,15 @@ function renderFlowMap() {
     .filter(Number.isFinite);
   const selectedMaxFlow = d3.max(flowValues) || 1;
   const historicalMaxFlow = d3.max(historicalFlowValues) || selectedMaxFlow;
-  const strokeWidth = d3.scaleSqrt().domain([0, historicalMaxFlow]).range([3, 30]);
-  const color = d3.scaleSequential(d3.interpolatePuBuGn).domain([0, historicalMaxFlow]);
+  const flowScaleMax = Math.max(historicalMaxFlow, SR1_FLOW_TRIGGER_M3S);
+  const strokeWidth = d3.scaleSqrt().domain([0, flowScaleMax]).range([3, 30]);
+  const color = d3.scaleSequential(d3.interpolatePuBuGn).domain([0, flowScaleMax]);
   const storageExtent = d3.extent(glenmoreRecords, (record) => record.storageDam3);
   const storageRadius = d3.scaleSqrt()
     .domain(storageExtent[0] === storageExtent[1] ? [0, storageExtent[1] || 1] : storageExtent)
     .range([15, 44]);
 
-  mapTimeLabel.textContent = `${formatTime(selectedTime)} · current max ${formatNumber(selectedMaxFlow, 1)} m3/s · width scale max ${formatNumber(historicalMaxFlow, 1)} m3/s`;
+  mapTimeLabel.textContent = `${formatTime(selectedTime)} · current max ${formatNumber(selectedMaxFlow, 1)} m3/s · SR1 trigger ${formatNumber(SR1_FLOW_TRIGGER_M3S, 0)} m3/s`;
 
   const bounds = flowMap.getBoundingClientRect();
   const width = Math.max(340, bounds.width);
@@ -424,7 +427,7 @@ function renderFlowMap() {
 
   const legendX = margin.left;
   const legendY = height - 58;
-  const legendValues = [historicalMaxFlow * 0.25, historicalMaxFlow * 0.6, historicalMaxFlow]
+  const legendValues = [flowScaleMax * 0.25, flowScaleMax * 0.6, SR1_FLOW_TRIGGER_M3S]
     .filter((value, index, values) => index === 0 || Math.abs(value - values[index - 1]) > 0.1);
 
   const legendGroup = svg.append("g")
@@ -447,7 +450,7 @@ function renderFlowMap() {
       .attr("class", "flow-map-meta")
       .attr("x", xOffset)
       .attr("y", 30)
-      .text(`${formatNumber(value, 1)} m3/s`);
+      .text(value === SR1_FLOW_TRIGGER_M3S ? `SR1 ${formatNumber(value, 0)} m3/s` : `${formatNumber(value, 1)} m3/s`);
   });
 }
 
@@ -484,8 +487,12 @@ function renderChart(metric) {
     .domain(d3.extent(readings, (row) => row.date))
     .range([margin.left, width - margin.right]);
 
+  const yExtent = d3.extent(readings, (row) => row.value);
+  const yDomain = metric === "flow"
+    ? [Math.min(yExtent[0], 0), Math.max(yExtent[1], SR1_FLOW_TRIGGER_M3S)]
+    : yExtent;
   const y = d3.scaleLinear()
-    .domain(d3.extent(readings, (row) => row.value))
+    .domain(yDomain)
     .nice()
     .range([height - margin.bottom, margin.top]);
 
@@ -511,6 +518,26 @@ function renderChart(metric) {
     .attr("font-size", 12)
     .attr("font-weight", 700)
     .text(`${metricConfig[metric].label} (${metricConfig[metric].unit})`);
+
+  if (metric === "flow") {
+    svg.append("line")
+      .attr("x1", margin.left)
+      .attr("x2", width - margin.right)
+      .attr("y1", y(SR1_FLOW_TRIGGER_M3S))
+      .attr("y2", y(SR1_FLOW_TRIGGER_M3S))
+      .attr("stroke", "#b65a18")
+      .attr("stroke-width", 1.5)
+      .attr("stroke-dasharray", "6 5");
+
+    svg.append("text")
+      .attr("x", width - margin.right)
+      .attr("y", y(SR1_FLOW_TRIGGER_M3S) - 8)
+      .attr("text-anchor", "end")
+      .attr("fill", "#b65a18")
+      .attr("font-size", 12)
+      .attr("font-weight", 800)
+      .text(`rough SR1 trigger ${formatNumber(SR1_FLOW_TRIGGER_M3S, 0)} m3/s`);
+  }
 
   const line = d3.line()
     .defined((row) => Number.isFinite(row.value))
@@ -592,6 +619,10 @@ function renderStorage() {
     }
 
     const percentFull = location.maxStorageDam3 ? summary.storageDam3 / location.maxStorageDam3 * 100 : null;
+    const roughFloodStorageLineDam3 = location.maxStorageDam3
+      ? location.maxStorageDam3 - GLENMORE_ACTIVE_FLOOD_STORAGE_DAM3
+      : null;
+    const storageMarginDam3 = roughFloodStorageLineDam3 ? roughFloodStorageLineDam3 - summary.storageDam3 : null;
 
     return `
       <article class="storage-card live">
@@ -600,7 +631,8 @@ function renderStorage() {
         <p class="storage-meta">
           ${formatNumber(summary.storageM3 / 1_000_000, 2)} million m3 · ${formatNumber(percentFull, 1)}% of listed max storage<br>
           Elevation ${formatNumber(summary.elevationM, 3)} m · latest ${formatTime(summary.latestAt)}<br>
-          Change 24h ${formatChange(summary.change24hDam3)} dam3, selected range ${formatChange(summary.changeRangeDam3)} dam3
+          Change 24h ${formatChange(summary.change24hDam3)} dam3, selected range ${formatChange(summary.changeRangeDam3)} dam3<br>
+          Rough flood-storage line ${formatNumber(roughFloodStorageLineDam3, 0)} dam3 · margin ${formatNumber(storageMarginDam3, 0)} dam3
         </p>
       </article>
     `;
@@ -634,8 +666,15 @@ function renderStorageChart() {
     .domain(d3.extent(records, (row) => row.date))
     .range([margin.left, width - margin.right]);
 
+  const roughFloodStorageLineDam3 = glenmore?.maxStorageDam3
+    ? glenmore.maxStorageDam3 - GLENMORE_ACTIVE_FLOOD_STORAGE_DAM3
+    : null;
+  const storageExtent = d3.extent(records, (row) => row.storageDam3);
+  const yDomain = roughFloodStorageLineDam3
+    ? [Math.min(storageExtent[0], roughFloodStorageLineDam3), Math.max(storageExtent[1], roughFloodStorageLineDam3)]
+    : storageExtent;
   const y = d3.scaleLinear()
-    .domain(d3.extent(records, (row) => row.storageDam3))
+    .domain(yDomain)
     .nice()
     .range([height - margin.bottom, margin.top]);
 
@@ -661,6 +700,26 @@ function renderStorageChart() {
     .attr("font-size", 12)
     .attr("font-weight", 700)
     .text("Glenmore storage (dam3)");
+
+  if (roughFloodStorageLineDam3) {
+    svg.append("line")
+      .attr("x1", margin.left)
+      .attr("x2", width - margin.right)
+      .attr("y1", y(roughFloodStorageLineDam3))
+      .attr("y2", y(roughFloodStorageLineDam3))
+      .attr("stroke", "#b65a18")
+      .attr("stroke-width", 1.5)
+      .attr("stroke-dasharray", "6 5");
+
+    svg.append("text")
+      .attr("x", width - margin.right)
+      .attr("y", y(roughFloodStorageLineDam3) - 8)
+      .attr("text-anchor", "end")
+      .attr("fill", "#b65a18")
+      .attr("font-size", 12)
+      .attr("font-weight", 800)
+      .text(`rough flood-storage line ${formatNumber(roughFloodStorageLineDam3, 0)} dam3`);
+  }
 
   const line = d3.line()
     .x((row) => x(row.date))
