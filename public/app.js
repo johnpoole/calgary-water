@@ -126,7 +126,7 @@ function renderCards(metric) {
         </div>
         ${metricLine("Level", level, "m")}
         ${metricLine("Flow", flow, "m3/s")}
-        <p class="metric-change">${summary ? `Latest ${metricConfig[metric].label.toLowerCase()} at ${formatTime(summary.latestAt)}. Historical range ${formatNumber(summary.min)}-${formatNumber(summary.max)} ${summary.unit}.` : "No current unit values returned for this station and metric."}</p>
+        <p class="metric-change">${summary ? `Latest ${metricConfig[metric].label.toLowerCase()} at ${formatTime(summary.latestAt)} · age ${formatNumber(summary.ageMinutes, 1)} min · range ${formatNumber(summary.min)}-${formatNumber(summary.max)} ${summary.unit}.` : "No current unit values returned for this station and metric."}</p>
       </article>
     `;
   }).join("");
