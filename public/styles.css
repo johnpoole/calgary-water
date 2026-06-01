@@ -121,6 +121,7 @@ main {
 }
 
 .station-card,
+.benchmark-panel,
 .flow-map-panel,
 .chart-panel,
 .chain-panel,
@@ -141,6 +142,53 @@ main {
 .station-card.unavailable {
   background: #fbfcfc;
   color: var(--muted);
+}
+
+.benchmark-panel {
+  padding: 16px;
+}
+
+.benchmark-panel .section-heading {
+  margin-bottom: 12px;
+}
+
+.benchmark-panel .section-heading > p {
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.benchmark-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.benchmark-grid div {
+  border-left: 3px solid var(--river);
+  padding-left: 10px;
+}
+
+.benchmark-grid span,
+.benchmark-grid small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.benchmark-grid strong {
+  display: block;
+  margin: 3px 0;
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.benchmark-note {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .station-name {
@@ -396,6 +444,10 @@ input[type="range"] {
     grid-template-columns: 1fr;
   }
 
+  .benchmark-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .chart-layout {
     grid-template-columns: 1fr;
   }
@@ -416,6 +468,10 @@ input[type="range"] {
   }
 
   .station-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .benchmark-grid {
     grid-template-columns: 1fr;
   }
 
