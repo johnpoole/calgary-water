@@ -411,7 +411,7 @@ function renderFlowMap() {
       .attr("x", sr1Point.x)
       .attr("y", sr1Point.y + 18)
       .attr("text-anchor", "middle")
-      .text(`${formatNumber(sr1Location.capacityM3 / 1_000_000, 1)}M m3 cap.`);
+      .text(`${formatNumber(sr1Location.capacityM3 / 1000, 0)} dam3 cap.`);
   }
 
   const legendX = margin.left;
@@ -588,8 +588,8 @@ function renderStorage() {
       return `
         <article class="storage-card">
           <h3>${location.name}</h3>
-          <p class="storage-main">${formatNumber(location.capacityM3 / 1_000_000, 1)} million m3</p>
-          <p class="storage-meta">${location.status}. ${location.note}<br>${proxyText}</p>
+          <p class="storage-main">${formatNumber(location.capacityM3 / 1000, 0)} dam3</p>
+          <p class="storage-meta">${formatNumber(location.capacityM3 / 1_000_000, 1)} million m3 capacity<br>${location.status}. ${location.note}<br>${proxyText}</p>
         </article>
       `;
     }
