@@ -247,8 +247,8 @@ function renderFlowMap() {
 
   const bounds = flowMap.getBoundingClientRect();
   const width = Math.max(340, bounds.width);
-  const height = Math.max(330, bounds.height || 360);
-  const margin = { top: 42, right: 42, bottom: 58, left: 42 };
+  const height = Math.max(370, bounds.height || 390);
+  const margin = { top: 42, right: 42, bottom: 78, left: 42 };
   const stations = latestData.stations;
   const x = d3.scaleLinear()
     .domain(d3.extent(stations, (station) => station.downstreamKm))
@@ -415,7 +415,7 @@ function renderFlowMap() {
   }
 
   const legendX = margin.left;
-  const legendY = height - 48;
+  const legendY = height - 58;
   const legendValues = [historicalMaxFlow * 0.25, historicalMaxFlow * 0.6, historicalMaxFlow]
     .filter((value, index, values) => index === 0 || Math.abs(value - values[index - 1]) > 0.1);
 
@@ -441,12 +441,6 @@ function renderFlowMap() {
       .attr("y", 30)
       .text(`${formatNumber(value, 1)} m3/s`);
   });
-
-  svg.append("text")
-    .attr("class", "flow-map-note")
-    .attr("x", legendX)
-    .attr("y", height - 16)
-    .text("Segment width uses the nearest upstream/downstream available station flow at the selected timestamp.");
 }
 
 function renderChart(metric) {
