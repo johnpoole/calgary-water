@@ -578,18 +578,11 @@ function renderStorage() {
     const summary = location.summary;
 
     if (!summary) {
-      const proxy = location.proxyStationId ? latestData?.summaries?.[location.proxyStationId]?.flow : null;
-      const proxyText = location.proxyStationId
-        ? proxy
-          ? `Proxy station ${location.proxyStationId} latest river flow: ${formatNumber(proxy.latest)} ${proxy.unit}. This is river flow at/near the diversion reach, not confirmed diverted flow.`
-          : `Proxy station ${location.proxyStationId} (${location.proxyStationName}) has no current public readings in WaterOffice or Open Calgary.`
-        : "";
-
       return `
         <article class="storage-card">
           <h3>${location.name}</h3>
           <p class="storage-main">${formatNumber(location.capacityM3 / 1000, 0)} dam3</p>
-          <p class="storage-meta">${formatNumber(location.capacityM3 / 1_000_000, 1)} million m3 capacity<br>${location.status}. ${location.note}<br>${proxyText}</p>
+          <p class="storage-meta">${formatNumber(location.capacityM3 / 1_000_000, 1)} million m3 capacity<br>Live level: unavailable<br>Proxy: ${location.proxyStationId || "n/a"}</p>
         </article>
       `;
     }
