@@ -63,6 +63,26 @@ function displayStationShortName(station) {
   return station.shortName.replace("Clem Gardiner Bridge", "Clem Gardner Bridge");
 }
 
+function mapLabelLines(station) {
+  if (station.id === "05BJ008") {
+    return ["Glenmore", "Reservoir"];
+  }
+  if (station.id === "05BJ001") {
+    return ["Below", "Glenmore Dam"];
+  }
+  return [displayStationShortName(station)];
+}
+
+function mapLabelOffset(station, index) {
+  if (station.id === "05BJ008") {
+    return -46;
+  }
+  if (station.id === "05BJ001") {
+    return 32;
+  }
+  return index % 2 === 0 ? -22 : 30;
+}
+
 async function loadData() {
   const days = rangeSelect.value;
   statusStrip.className = "status-strip";
@@ -328,17 +348,26 @@ function renderFlowMap() {
     .attr("stroke", "#075e68")
     .attr("stroke-width", 2);
 
-  stationGroups.append("text")
+  const stationLabel = stationGroups.append("text")
     .attr("class", "flow-map-label")
     .attr("x", 0)
-    .attr("y", (point, index) => index % 2 === 0 ? -20 : 30)
-    .attr("text-anchor", "middle")
-    .text((point) => displayStationShortName(point.station));
+    .attr("y", (point, index) => mapLabelOffset(point.station, index))
+    .attr("text-anchor", "middle");
+
+  stationLabel.each(function(point) {
+    const text = d3.select(this);
+    mapLabelLines(point.station).forEach((line, index) => {
+      text.append("tspan")
+        .attr("x", 0)
+        .attr("dy", index === 0 ? 0 : 13)
+        .text(line);
+    });
+  });
 
   stationGroups.append("text")
     .attr("class", "flow-map-meta")
     .attr("x", 0)
-    .attr("y", (point, index) => index % 2 === 0 ? -6 : 44)
+    .attr("y", (point, index) => mapLabelOffset(point.station, index) + mapLabelLines(point.station).length * 13 + 4)
     .attr("text-anchor", "middle")
     .text((point) => {
       const reading = latestByStation.get(point.station.id);
