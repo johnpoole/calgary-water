@@ -321,6 +321,38 @@ function glenmoreStorageAtSelectedMapTime() {
   return nearest;
 }
 
+function currentGlenmoreMapStorage() {
+  const glenmore = storageData?.locations?.find((location) => location.id === "glenmore");
+  const summary = glenmore?.summary;
+
+  if (!glenmore || !summary) {
+    return null;
+  }
+
+  if (hoursSince(summary.latestAt) <= GLENMORE_STALE_HOURS) {
+    return {
+      elevationM: summary.elevationM,
+      storageDam3: summary.storageDam3,
+      estimated: false
+    };
+  }
+
+  const estimate = estimateGlenmoreStorage(summary, glenmore.records || []);
+  if (!estimate) {
+    return {
+      elevationM: summary.elevationM,
+      storageDam3: summary.storageDam3,
+      estimated: false
+    };
+  }
+
+  return {
+    elevationM: estimate.estimatedElevationM,
+    storageDam3: estimate.estimatedStorageDam3,
+    estimated: true
+  };
+}
+
 function renderFlowMap() {
   flowMap.innerHTML = "";
 
@@ -332,7 +364,11 @@ function renderFlowMap() {
 
   const selectedTime = mapTimes[Number(mapTimeSlider.value)];
   const latestByStation = readingsAtSelectedMapTime();
-  const glenmoreStorage = glenmoreStorageAtSelectedMapTime();
+  const historicalGlenmoreStorage = glenmoreStorageAtSelectedMapTime();
+  const currentMapGlenmoreStorage = Number(mapTimeSlider.value) === mapTimes.length - 1
+    ? currentGlenmoreMapStorage()
+    : null;
+  const glenmoreStorage = currentMapGlenmoreStorage || historicalGlenmoreStorage;
   const glenmoreLocation = storageData?.locations?.find((location) => location.id === "glenmore");
   const glenmoreRecords = glenmoreLocation?.records || [];
   const flowValues = Array.from(latestByStation.values()).map((row) => row.value).filter(Number.isFinite);
@@ -473,7 +509,7 @@ function renderFlowMap() {
       .attr("x", reservoirPoint.x)
       .attr("y", reservoirPoint.y - radius - 8)
       .attr("text-anchor", "middle")
-      .text("Glenmore");
+      .text(glenmoreStorage?.estimated ? "Glenmore est." : "Glenmore");
 
     svg.append("text")
       .attr("class", "flow-map-meta")
