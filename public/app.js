@@ -79,17 +79,30 @@ function storageElevationSlope(records) {
   return d3.sum(points, (row) => (row.storageDam3 - averageStorage) * (row.elevationM - averageElevation)) / variance;
 }
 
-function estimateGlenmoreStorage(summary, records) {
+function estimateGlenmoreStorage(summary, records, endTimeMs = Infinity) {
   if (!latestData || !summary) {
     return null;
   }
 
   const startTime = new Date(summary.latestAt).getTime();
+  const boundedEndTime = Number.isFinite(endTimeMs) ? endTimeMs : Infinity;
   const inflow = latestData.readings
-    .filter((row) => row.stationId === "05BJ010" && row.parameter === metricConfig.flow.parameter && new Date(row.timestamp).getTime() >= startTime)
+    .filter((row) => {
+      const time = new Date(row.timestamp).getTime();
+      return row.stationId === "05BJ010" &&
+        row.parameter === metricConfig.flow.parameter &&
+        time >= startTime &&
+        time <= boundedEndTime;
+    })
     .map((row) => [row.timestamp, row.value]);
   const outflow = latestData.readings
-    .filter((row) => row.stationId === "05BJ001" && row.parameter === metricConfig.flow.parameter && new Date(row.timestamp).getTime() >= startTime)
+    .filter((row) => {
+      const time = new Date(row.timestamp).getTime();
+      return row.stationId === "05BJ001" &&
+        row.parameter === metricConfig.flow.parameter &&
+        time >= startTime &&
+        time <= boundedEndTime;
+    })
     .map((row) => [row.timestamp, row.value]);
 
   const inflowByTime = new Map(inflow);
@@ -307,6 +320,22 @@ function glenmoreStorageAtSelectedMapTime() {
   }
 
   const selected = new Date(mapTimes[Number(mapTimeSlider.value)]).getTime();
+  const summaryTime = glenmore?.summary ? new Date(glenmore.summary.latestAt).getTime() : null;
+  const staleBoundary = summaryTime + GLENMORE_STALE_HOURS * 3_600_000;
+
+  if (summaryTime && selected > staleBoundary) {
+    const estimate = estimateGlenmoreStorage(glenmore.summary, records, selected);
+    if (estimate) {
+      return {
+        timestamp: estimate.latestAt,
+        elevationM: estimate.estimatedElevationM,
+        storageDam3: estimate.estimatedStorageDam3,
+        storageM3: estimate.estimatedStorageDam3 * 1000,
+        estimated: true
+      };
+    }
+  }
+
   let nearest = null;
   let nearestDistance = Infinity;
 
@@ -321,38 +350,6 @@ function glenmoreStorageAtSelectedMapTime() {
   return nearest;
 }
 
-function currentGlenmoreMapStorage() {
-  const glenmore = storageData?.locations?.find((location) => location.id === "glenmore");
-  const summary = glenmore?.summary;
-
-  if (!glenmore || !summary) {
-    return null;
-  }
-
-  if (hoursSince(summary.latestAt) <= GLENMORE_STALE_HOURS) {
-    return {
-      elevationM: summary.elevationM,
-      storageDam3: summary.storageDam3,
-      estimated: false
-    };
-  }
-
-  const estimate = estimateGlenmoreStorage(summary, glenmore.records || []);
-  if (!estimate) {
-    return {
-      elevationM: summary.elevationM,
-      storageDam3: summary.storageDam3,
-      estimated: false
-    };
-  }
-
-  return {
-    elevationM: estimate.estimatedElevationM,
-    storageDam3: estimate.estimatedStorageDam3,
-    estimated: true
-  };
-}
-
 function renderFlowMap() {
   flowMap.innerHTML = "";
 
@@ -364,11 +361,7 @@ function renderFlowMap() {
 
   const selectedTime = mapTimes[Number(mapTimeSlider.value)];
   const latestByStation = readingsAtSelectedMapTime();
-  const historicalGlenmoreStorage = glenmoreStorageAtSelectedMapTime();
-  const currentMapGlenmoreStorage = Number(mapTimeSlider.value) === mapTimes.length - 1
-    ? currentGlenmoreMapStorage()
-    : null;
-  const glenmoreStorage = currentMapGlenmoreStorage || historicalGlenmoreStorage;
+  const glenmoreStorage = glenmoreStorageAtSelectedMapTime();
   const glenmoreLocation = storageData?.locations?.find((location) => location.id === "glenmore");
   const glenmoreRecords = glenmoreLocation?.records || [];
   const flowValues = Array.from(latestByStation.values()).map((row) => row.value).filter(Number.isFinite);
