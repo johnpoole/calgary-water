@@ -658,7 +658,7 @@ function renderStorage() {
         <p class="storage-main">${formatNumber(summary.storageDam3, 0)} dam3</p>
         <p class="storage-meta">
           ${formatNumber(summary.storageM3 / 1_000_000, 2)} million m3 · ${formatNumber(percentFull, 1)}% of listed max storage<br>
-          Elevation ${formatNumber(summary.elevationM, 3)} m · latest ${formatTime(summary.latestAt)}<br>
+          Elevation ${formatNumber(summary.elevationM, 3)} m · latest ${formatTime(summary.latestAt)} · age ${formatNumber((Date.now() - new Date(summary.latestAt).getTime()) / 3_600_000, 1)} h<br>
           Change 24h ${formatChange(summary.change24hDam3)} dam3, selected range ${formatChange(summary.changeRangeDam3)} dam3<br>
           Rough flood-storage line ${formatNumber(roughFloodStorageLineDam3, 0)} dam3 · margin ${formatNumber(storageMarginDam3, 0)} dam3
         </p>
