@@ -25,6 +25,7 @@ const GLENMORE_ACTIVE_FLOOD_STORAGE_DAM3 = 10_000;
 const GLENMORE_STALE_HOURS = 2;
 const BRAGG_TO_SARCEE_LAG_HOURS = 9;
 const colors = ["#0f7f8c", "#395f9d", "#7b8b2e", "#c17427", "#8f5542"];
+const SARCEE_COLOR = "#395f9d";
 let latestData = null;
 let storageData = null;
 let mapTimes = [];
@@ -729,9 +730,10 @@ function renderChart(metric) {
     svg.append("path")
       .datum(forecastValues)
       .attr("fill", "none")
-      .attr("stroke", "#b65a18")
+      .attr("stroke", SARCEE_COLOR)
       .attr("stroke-width", 2.5)
       .attr("stroke-dasharray", "7 5")
+      .attr("opacity", 0.9)
       .attr("d", line);
   }
 
@@ -782,7 +784,7 @@ function renderChart(metric) {
   if (forecastValues.length > 1) {
     legend.append("span")
       .attr("class", "legend-item")
-      .html(`<span class="legend-swatch" style="background:#b65a18"></span>Sarcee estimate from Bragg +${BRAGG_TO_SARCEE_LAG_HOURS}h`);
+      .html(`<span class="legend-swatch" style="background:${SARCEE_COLOR}"></span>Sarcee estimate from Bragg +${BRAGG_TO_SARCEE_LAG_HOURS}h`);
   }
 }
 
