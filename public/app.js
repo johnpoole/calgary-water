@@ -23,6 +23,7 @@ const metricConfig = {
 const SR1_FLOW_TRIGGER_M3S = 160;
 const GLENMORE_ACTIVE_FLOOD_STORAGE_DAM3 = 10_000;
 const GLENMORE_STALE_HOURS = 2;
+const BRAGG_TO_SARCEE_LAG_HOURS = 9;
 const colors = ["#0f7f8c", "#395f9d", "#7b8b2e", "#c17427", "#8f5542"];
 let latestData = null;
 let storageData = null;
@@ -226,6 +227,11 @@ function renderCards(metric) {
     const flow = latestData.summaries[station.id]?.flow;
     const unavailable = !level && !flow;
 
+    const sarceeForecast = station.id === "05BJ010" && metric === "flow" ? estimateSarceeForecast() : null;
+    const sarceeForecastText = sarceeForecast
+      ? `<br>Estimated next ${formatTime(sarceeForecast.at)}: ${formatNumber(sarceeForecast.value, 1)} m3/s from Bragg +${BRAGG_TO_SARCEE_LAG_HOURS}h`
+      : "";
+
     return `
       <article class="station-card ${unavailable ? "unavailable" : ""}">
         <div class="station-name">
@@ -237,10 +243,41 @@ function renderCards(metric) {
         </div>
         ${metricLine("Level", level, "m")}
         ${metricLine("Flow", flow, "m3/s")}
-        <p class="metric-change">${summary ? `Latest ${metricConfig[metric].label.toLowerCase()} at ${formatTime(summary.latestAt)} · age ${formatNumber(summary.ageMinutes, 1)} min · range ${formatNumber(summary.min)}-${formatNumber(summary.max)} ${summary.unit}.` : "No current unit values returned for this station and metric."}</p>
+        <p class="metric-change">${summary ? `Latest ${metricConfig[metric].label.toLowerCase()} at ${formatTime(summary.latestAt)} · age ${formatNumber(summary.ageMinutes, 1)} min · range ${formatNumber(summary.min)}-${formatNumber(summary.max)} ${summary.unit}.${sarceeForecastText}` : "No current unit values returned for this station and metric."}</p>
       </article>
     `;
   }).join("");
+}
+
+function sarceeForecastSeries() {
+  const sarceeLatest = latestData?.summaries?.["05BJ010"]?.flow?.latestAt;
+  if (!sarceeLatest) {
+    return [];
+  }
+
+  const sarceeLatestMs = new Date(sarceeLatest).getTime();
+  const horizonMs = sarceeLatestMs + BRAGG_TO_SARCEE_LAG_HOURS * 3_600_000;
+  return latestData.readings
+    .filter((row) => row.stationId === "05BJ004" && row.parameter === metricConfig.flow.parameter)
+    .map((row) => ({
+      stationId: "05BJ010-estimate",
+      date: new Date(new Date(row.timestamp).getTime() + BRAGG_TO_SARCEE_LAG_HOURS * 3_600_000),
+      value: row.value
+    }))
+    .filter((row) => row.date.getTime() > sarceeLatestMs && row.date.getTime() <= horizonMs)
+    .sort((a, b) => a.date - b.date);
+}
+
+function estimateSarceeForecast() {
+  const series = sarceeForecastSeries();
+  if (series.length === 0) {
+    return null;
+  }
+  const latest = series.at(-1);
+  return {
+    at: latest.date.toISOString(),
+    value: latest.value
+  };
 }
 
 function metricLine(label, summary, unit) {
@@ -593,6 +630,8 @@ function renderChart(metric) {
   const readings = latestData.readings
     .filter((row) => row.parameter === parameter)
     .map((row) => ({ ...row, date: new Date(row.timestamp) }));
+  const forecastValues = metric === "flow" ? sarceeForecastSeries() : [];
+  const chartReadings = readings.concat(forecastValues);
 
   const series = latestData.stations.map((station, index) => ({
     station,
@@ -617,10 +656,10 @@ function renderChart(metric) {
     .attr("viewBox", `0 0 ${width} ${height}`);
 
   const x = d3.scaleTime()
-    .domain(d3.extent(readings, (row) => row.date))
+    .domain(d3.extent(chartReadings, (row) => row.date))
     .range([margin.left, width - margin.right]);
 
-  const yExtent = d3.extent(readings, (row) => row.value);
+  const yExtent = d3.extent(chartReadings, (row) => row.value);
   const yDomain = metric === "flow"
     ? [Math.min(yExtent[0], 0), Math.max(yExtent[1], SR1_FLOW_TRIGGER_M3S)]
     : yExtent;
@@ -686,6 +725,16 @@ function renderChart(metric) {
       .attr("d", line);
   }
 
+  if (forecastValues.length > 1) {
+    svg.append("path")
+      .datum(forecastValues)
+      .attr("fill", "none")
+      .attr("stroke", "#b65a18")
+      .attr("stroke-width", 2.5)
+      .attr("stroke-dasharray", "7 5")
+      .attr("d", line);
+  }
+
   const focusLayer = svg.append("g");
   const bisect = d3.bisector((row) => row.date).left;
 
@@ -729,6 +778,11 @@ function renderChart(metric) {
     legend.append("span")
       .attr("class", "legend-item")
       .html(`<span class="legend-swatch" style="background:${item.color}"></span>${displayStationShortName(item.station)}`);
+  }
+  if (forecastValues.length > 1) {
+    legend.append("span")
+      .attr("class", "legend-item")
+      .html(`<span class="legend-swatch" style="background:#b65a18"></span>Sarcee estimate from Bragg +${BRAGG_TO_SARCEE_LAG_HOURS}h`);
   }
 }
 
