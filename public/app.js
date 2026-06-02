@@ -22,6 +22,7 @@ const metricConfig = {
 
 const SR1_FLOW_TRIGGER_M3S = 160;
 const GLENMORE_ACTIVE_FLOOD_STORAGE_DAM3 = 10_000;
+const GLENMORE_STALE_HOURS = 2;
 const colors = ["#0f7f8c", "#395f9d", "#7b8b2e", "#c17427", "#8f5542"];
 let latestData = null;
 let storageData = null;
@@ -53,6 +54,81 @@ function formatTime(value) {
     hour: "numeric",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function hoursSince(value) {
+  return (Date.now() - new Date(value).getTime()) / 3_600_000;
+}
+
+function storageElevationSlope(records) {
+  const points = records
+    .filter((row) => Number.isFinite(row.storageDam3) && Number.isFinite(row.elevationM));
+
+  if (points.length < 2) {
+    return null;
+  }
+
+  const averageStorage = d3.mean(points, (row) => row.storageDam3);
+  const averageElevation = d3.mean(points, (row) => row.elevationM);
+  const variance = d3.sum(points, (row) => (row.storageDam3 - averageStorage) ** 2);
+
+  if (!variance) {
+    return null;
+  }
+
+  return d3.sum(points, (row) => (row.storageDam3 - averageStorage) * (row.elevationM - averageElevation)) / variance;
+}
+
+function estimateGlenmoreStorage(summary, records) {
+  if (!latestData || !summary) {
+    return null;
+  }
+
+  const startTime = new Date(summary.latestAt).getTime();
+  const inflow = latestData.readings
+    .filter((row) => row.stationId === "05BJ010" && row.parameter === metricConfig.flow.parameter && new Date(row.timestamp).getTime() >= startTime)
+    .map((row) => [row.timestamp, row.value]);
+  const outflow = latestData.readings
+    .filter((row) => row.stationId === "05BJ001" && row.parameter === metricConfig.flow.parameter && new Date(row.timestamp).getTime() >= startTime)
+    .map((row) => [row.timestamp, row.value]);
+
+  const inflowByTime = new Map(inflow);
+  const outflowByTime = new Map(outflow);
+  const common = Array.from(inflowByTime.keys())
+    .filter((timestamp) => outflowByTime.has(timestamp))
+    .sort()
+    .map((timestamp) => ({
+      timestamp,
+      timeMs: new Date(timestamp).getTime(),
+      netFlow: inflowByTime.get(timestamp) - outflowByTime.get(timestamp)
+    }));
+
+  if (common.length < 2) {
+    return null;
+  }
+
+  let netVolumeM3 = 0;
+  for (let index = 1; index < common.length; index += 1) {
+    const previous = common[index - 1];
+    const current = common[index];
+    const seconds = (current.timeMs - previous.timeMs) / 1000;
+    netVolumeM3 += ((previous.netFlow + current.netFlow) / 2) * seconds;
+  }
+
+  const netDam3 = netVolumeM3 / 1000;
+  const estimatedStorageDam3 = summary.storageDam3 + netDam3;
+  const slope = storageElevationSlope(records);
+  const estimatedElevationM = slope
+    ? summary.elevationM + (estimatedStorageDam3 - summary.storageDam3) * slope
+    : null;
+
+  return {
+    latestAt: common.at(-1).timestamp,
+    hoursEstimated: (common.at(-1).timeMs - startTime) / 3_600_000,
+    netDam3,
+    estimatedStorageDam3,
+    estimatedElevationM
+  };
 }
 
 function displayStationName(station) {
@@ -651,6 +727,13 @@ function renderStorage() {
       ? location.maxStorageDam3 - GLENMORE_ACTIVE_FLOOD_STORAGE_DAM3
       : null;
     const storageMarginDam3 = roughFloodStorageLineDam3 ? roughFloodStorageLineDam3 - summary.storageDam3 : null;
+    const ageHours = hoursSince(summary.latestAt);
+    const estimate = ageHours > GLENMORE_STALE_HOURS
+      ? estimateGlenmoreStorage(summary, location.records || [])
+      : null;
+    const estimateText = estimate
+      ? `<br><strong>Estimated now</strong> ${formatNumber(estimate.estimatedElevationM, 3)} m · ${formatNumber(estimate.estimatedStorageDam3, 0)} dam3<br>Net change from Sarcee - Below Dam: ${formatChange(estimate.netDam3)} dam3 over ${formatNumber(estimate.hoursEstimated, 1)} h`
+      : "";
 
     return `
       <article class="storage-card live">
@@ -658,7 +741,7 @@ function renderStorage() {
         <p class="storage-main">${formatNumber(summary.storageDam3, 0)} dam3</p>
         <p class="storage-meta">
           ${formatNumber(summary.storageM3 / 1_000_000, 2)} million m3 · ${formatNumber(percentFull, 1)}% of listed max storage<br>
-          Elevation ${formatNumber(summary.elevationM, 3)} m · latest ${formatTime(summary.latestAt)} · age ${formatNumber((Date.now() - new Date(summary.latestAt).getTime()) / 3_600_000, 1)} h<br>
+          Elevation ${formatNumber(summary.elevationM, 3)} m · latest ${formatTime(summary.latestAt)} · age ${formatNumber(ageHours, 1)} h${estimateText}<br>
           Change 24h ${formatChange(summary.change24hDam3)} dam3, selected range ${formatChange(summary.changeRangeDam3)} dam3<br>
           Rough flood-storage line ${formatNumber(roughFloodStorageLineDam3, 0)} dam3 · margin ${formatNumber(storageMarginDam3, 0)} dam3
         </p>
