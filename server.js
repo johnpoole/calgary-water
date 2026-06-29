@@ -1,10 +1,24 @@
 import http from "node:http";
+import { execSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 
 const PORT = Number(process.env.PORT || 4173);
 const HOST = process.env.HOST || "0.0.0.0";
 const PUBLIC_DIR = resolve("public");
+
+function resolveCommit() {
+  if (process.env.RENDER_GIT_COMMIT) {
+    return process.env.RENDER_GIT_COMMIT.slice(0, 7);
+  }
+  try {
+    return execSync("git rev-parse --short HEAD").toString().trim();
+  } catch {
+    return "unknown";
+  }
+}
+
+const COMMIT = resolveCommit();
 
 const PARAMETERS = {
   "46": { key: "level", label: "Level", unit: "m" },
@@ -286,7 +300,7 @@ async function handleApi(req, res, url) {
   }
 
   if (url.pathname === "/api/health") {
-    sendJson(res, 200, { ok: true, checkedAt: new Date().toISOString() });
+    sendJson(res, 200, { ok: true, checkedAt: new Date().toISOString(), commit: COMMIT });
     return;
   }
 
@@ -392,5 +406,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`Elbow River monitor running on ${HOST}:${PORT}`);
+  console.log(`Elbow River monitor running on ${HOST}:${PORT} (commit ${COMMIT})`);
 });

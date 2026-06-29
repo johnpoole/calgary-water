@@ -234,6 +234,22 @@ main {
   font-size: 12px;
 }
 
+.station-source {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.station-source a,
+#storageSourceText a {
+  color: var(--river-dark);
+  text-decoration: none;
+}
+
+.station-source a:hover,
+#storageSourceText a:hover {
+  text-decoration: underline;
+}
+
 .chart-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
@@ -419,6 +435,14 @@ input[type="range"] {
 
 #storageChart {
   min-height: 290px;
+}
+
+.build-footer {
+  padding: 0 clamp(16px, 4vw, 48px) 18px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+  opacity: 0.7;
 }
 
 .tooltip {

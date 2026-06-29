@@ -14,6 +14,7 @@ const metricSelect = document.querySelector("#metricSelect");
 const mapTimeSlider = document.querySelector("#mapTimeSlider");
 const mapLatestButton = document.querySelector("#mapLatestButton");
 const refreshButton = document.querySelector("#refreshButton");
+const buildLabel = document.querySelector("#buildLabel");
 
 const metricConfig = {
   flow: { parameter: "47", label: "Flow", unit: "m3/s" },
@@ -245,6 +246,7 @@ function renderCards(metric) {
         ${metricLine("Level", level, "m")}
         ${metricLine("Flow", flow, "m3/s")}
         <p class="metric-change">${summary ? `Latest ${metricConfig[metric].label.toLowerCase()} at ${formatTime(summary.latestAt)} · age ${formatNumber(summary.ageMinutes, 1)} min · range ${formatNumber(summary.min)}-${formatNumber(summary.max)} ${summary.unit}.${sarceeForecastText}` : "No current unit values returned for this station and metric."}</p>
+        <p class="station-source"><a href="https://wateroffice.ec.gc.ca/report/real_time_e.html?stn=${station.id}" target="_blank" rel="noopener">Verify on WaterOffice ↗</a></p>
       </article>
     `;
   }).join("");
@@ -347,6 +349,28 @@ function readingsAtSelectedMapTime() {
     latestByStation.set(row.stationId, row);
   }
   return latestByStation;
+}
+
+function upstreamFlowSeries(stationId, selectedTimeMs) {
+  return latestData.readings
+    .filter((row) => row.stationId === stationId &&
+      row.parameter === metricConfig.flow.parameter &&
+      Number.isFinite(row.value))
+    .map((row) => ({ timeMs: new Date(row.timestamp).getTime(), value: row.value }))
+    .filter((row) => row.timeMs <= selectedTimeMs)
+    .sort((a, b) => a.timeMs - b.timeMs);
+}
+
+function flowAtOrBefore(series, targetMs) {
+  let result = null;
+  for (const point of series) {
+    if (point.timeMs <= targetMs) {
+      result = point;
+    } else {
+      break;
+    }
+  }
+  return result || series[0] || null;
 }
 
 function glenmoreStorageAtSelectedMapTime() {
@@ -454,20 +478,66 @@ function renderFlowMap() {
     .x((point) => point.x)
     .y((point) => point.y);
 
+  // Travel time is derived from the one measured lag we have: Bragg Creek (km 0)
+  // to Sarcee Bridge (km 28) takes BRAGG_TO_SARCEE_LAG_HOURS, giving a river
+  // speed we apply to every segment by distance.
+  const bragg = stations.find((station) => station.id === "05BJ004");
+  const sarcee = stations.find((station) => station.id === "05BJ010");
+  const riverSpeedKmPerH = bragg && sarcee && sarcee.downstreamKm > bragg.downstreamKm
+    ? (sarcee.downstreamKm - bragg.downstreamKm) / BRAGG_TO_SARCEE_LAG_HOURS
+    : null;
+  const selectedTimeMs = new Date(selectedTime).getTime();
+  const INCREMENT_HOURS = 0.5;
+
   for (let i = 0; i < points.length - 1; i += 1) {
     const current = points[i];
     const next = points[i + 1];
-    const reading = latestByStation.get(current.station.id) || latestByStation.get(next.station.id);
-    const value = reading?.value;
+    const distanceKm = next.station.downstreamKm - current.station.downstreamKm;
+    const segmentTravelHours = riverSpeedKmPerH && distanceKm > 0
+      ? distanceKm / riverSpeedKmPerH
+      : 0;
+    const upstreamSeries = upstreamFlowSeries(current.station.id, selectedTimeMs);
 
-    svg.append("path")
-      .datum([current, next])
-      .attr("d", segmentLine)
-      .attr("fill", "none")
-      .attr("stroke", Number.isFinite(value) ? color(value) : "#bcccca")
-      .attr("stroke-width", Number.isFinite(value) ? strokeWidth(value) : 3)
-      .attr("stroke-linecap", "round")
-      .attr("opacity", Number.isFinite(value) ? 0.82 : 0.45);
+    // Sample the segment in 30-minute travel-time increments. At each step the
+    // width reflects the upstream reading from that many hours earlier, so the
+    // flood wave shows as it propagates downstream.
+    const increments = [];
+    if (segmentTravelHours > 0) {
+      for (let hours = 0; hours < segmentTravelHours; hours += INCREMENT_HOURS) {
+        increments.push(hours);
+      }
+    } else {
+      increments.push(0);
+    }
+
+    for (let step = 0; step < increments.length; step += 1) {
+      const startHours = increments[step];
+      const endHours = step + 1 < increments.length ? increments[step + 1] : segmentTravelHours;
+      const fractionStart = segmentTravelHours > 0 ? startHours / segmentTravelHours : 0;
+      const fractionEnd = segmentTravelHours > 0 ? endHours / segmentTravelHours : 1;
+      const from = {
+        x: current.x + (next.x - current.x) * fractionStart,
+        y: current.y + (next.y - current.y) * fractionStart
+      };
+      const to = {
+        x: current.x + (next.x - current.x) * fractionEnd,
+        y: current.y + (next.y - current.y) * fractionEnd
+      };
+
+      const upstreamReading = upstreamSeries.length
+        ? flowAtOrBefore(upstreamSeries, selectedTimeMs - startHours * 3_600_000)
+        : null;
+      const value = upstreamReading ? upstreamReading.value : latestByStation.get(next.station.id)?.value;
+
+      svg.append("path")
+        .datum([from, to])
+        .attr("d", segmentLine)
+        .attr("fill", "none")
+        .attr("stroke", Number.isFinite(value) ? color(value) : "#bcccca")
+        .attr("stroke-width", Number.isFinite(value) ? strokeWidth(value) : 3)
+        .attr("stroke-linecap", "round")
+        .attr("opacity", Number.isFinite(value) ? 0.82 : 0.45);
+    }
   }
 
   svg.append("path")
@@ -677,7 +747,7 @@ function renderChart(metric) {
   svg.append("g")
     .attr("class", "axis")
     .attr("transform", `translate(0,${height - margin.bottom})`)
-    .call(d3.axisBottom(x).ticks(Math.min(8, width / 120)));
+    .call(d3.axisBottom(x).ticks(Math.min(8, width / 150)).tickFormat(d3.timeFormat("%b %-d %H:%M")));
 
   svg.append("g")
     .attr("class", "axis")
@@ -793,7 +863,7 @@ function renderStorage() {
     return;
   }
 
-  storageSourceText.textContent = `Open Calgary, ${storageData.range.days} days`;
+  storageSourceText.innerHTML = `<a href="https://data.calgary.ca/d/5fdg-ifgr" target="_blank" rel="noopener">Open Calgary source ↗</a>, ${storageData.range.days} days`;
   storageGrid.innerHTML = storageData.locations.map((location) => {
     const summary = location.summary;
 
@@ -965,5 +1035,19 @@ window.addEventListener("resize", () => {
   renderStorageChart();
 });
 
+async function loadBuildLabel() {
+  try {
+    const response = await fetch("/api/health");
+    if (!response.ok) {
+      throw new Error(`health API returned HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    buildLabel.textContent = `build ${data.commit} · checked ${formatTime(data.checkedAt)}`;
+  } catch (error) {
+    buildLabel.textContent = `build unknown: ${error.message}`;
+  }
+}
+
+loadBuildLabel();
 loadData();
 setInterval(loadData, 10 * 60 * 1000);
