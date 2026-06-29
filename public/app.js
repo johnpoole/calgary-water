@@ -27,6 +27,7 @@ const GLENMORE_STALE_HOURS = 2;
 const BRAGG_TO_SARCEE_LAG_HOURS = 9;
 const colors = ["#0f7f8c", "#395f9d", "#7b8b2e", "#c17427", "#8f5542"];
 const SARCEE_COLOR = "#395f9d";
+const DIVERSION_COLOR = "#7a3aa0";
 let latestData = null;
 let storageData = null;
 let mapTimes = [];
@@ -259,6 +260,19 @@ function renderCards(metric) {
   }).join("");
 }
 
+// Bragg Creek flow routed downstream to Sarcee by the travel lag, across the
+// whole window. With no diversion this is what Sarcee should read; the part
+// beyond Sarcee's latest reading is the forward forecast.
+function sarceeProjectedSeries() {
+  return latestData.readings
+    .filter((row) => row.stationId === "05BJ004" && row.parameter === metricConfig.flow.parameter)
+    .map((row) => ({
+      date: new Date(new Date(row.timestamp).getTime() + BRAGG_TO_SARCEE_LAG_HOURS * 3_600_000),
+      value: row.value
+    }))
+    .sort((a, b) => a.date - b.date);
+}
+
 function sarceeForecastSeries() {
   const sarceeLatest = latestData?.summaries?.["05BJ010"]?.flow?.latestAt;
   if (!sarceeLatest) {
@@ -267,15 +281,50 @@ function sarceeForecastSeries() {
 
   const sarceeLatestMs = new Date(sarceeLatest).getTime();
   const horizonMs = sarceeLatestMs + BRAGG_TO_SARCEE_LAG_HOURS * 3_600_000;
-  return latestData.readings
-    .filter((row) => row.stationId === "05BJ004" && row.parameter === metricConfig.flow.parameter)
-    .map((row) => ({
-      stationId: "05BJ010-estimate",
-      date: new Date(new Date(row.timestamp).getTime() + BRAGG_TO_SARCEE_LAG_HOURS * 3_600_000),
-      value: row.value
-    }))
+  return sarceeProjectedSeries()
     .filter((row) => row.date.getTime() > sarceeLatestMs && row.date.getTime() <= horizonMs)
+    .map((row) => ({ stationId: "05BJ010-estimate", date: row.date, value: row.value }));
+}
+
+// projected minus actual at each Sarcee reading. When SR1 is diverting, actual
+// Sarcee falls below the projection and this gap is the estimated diversion
+// rate. Near zero (or slightly negative from routing error and tributary
+// inflow) when no diversion is happening.
+function sarceeDiversionSeries(projected) {
+  const sarceeActual = latestData.readings
+    .filter((row) => row.stationId === "05BJ010" && row.parameter === metricConfig.flow.parameter)
+    .map((row) => ({ date: new Date(row.timestamp), value: row.value }))
     .sort((a, b) => a.date - b.date);
+
+  if (projected.length === 0 || sarceeActual.length === 0) {
+    return [];
+  }
+
+  const projectStartMs = projected[0].date.getTime();
+  const projectEndMs = projected.at(-1).date.getTime();
+  const bisect = d3.bisector((row) => row.date).left;
+  const result = [];
+
+  for (const actual of sarceeActual) {
+    const timeMs = actual.date.getTime();
+    if (timeMs < projectStartMs || timeMs > projectEndMs) {
+      continue;
+    }
+    const index = bisect(projected, actual.date);
+    const right = projected[Math.min(projected.length - 1, index)];
+    const left = projected[Math.max(0, index - 1)];
+    let projectedValue;
+    if (left === right) {
+      projectedValue = left.value;
+    } else {
+      const span = right.date - left.date;
+      const fraction = span > 0 ? (actual.date - left.date) / span : 0;
+      projectedValue = left.value + (right.value - left.value) * fraction;
+    }
+    result.push({ date: actual.date, value: projectedValue - actual.value });
+  }
+
+  return result;
 }
 
 function estimateSarceeForecast() {
@@ -708,8 +757,9 @@ function renderChart(metric) {
   const readings = latestData.readings
     .filter((row) => row.parameter === parameter)
     .map((row) => ({ ...row, date: new Date(row.timestamp) }));
-  const forecastValues = metric === "flow" ? sarceeForecastSeries() : [];
-  const chartReadings = readings.concat(forecastValues);
+  const projectedSarcee = metric === "flow" ? sarceeProjectedSeries() : [];
+  const diversionValues = metric === "flow" ? sarceeDiversionSeries(projectedSarcee) : [];
+  const chartReadings = readings.concat(projectedSarcee);
 
   const series = latestData.stations.map((station, index) => ({
     station,
@@ -737,7 +787,7 @@ function renderChart(metric) {
     .domain(d3.extent(chartReadings, (row) => row.date))
     .range([margin.left, width - margin.right]);
 
-  const yExtent = d3.extent(chartReadings, (row) => row.value);
+  const yExtent = d3.extent(chartReadings.concat(diversionValues), (row) => row.value);
   const yDomain = metric === "flow"
     ? [Math.min(yExtent[0], 0), Math.max(yExtent[1], SR1_FLOW_TRIGGER_M3S)]
     : yExtent;
@@ -803,13 +853,23 @@ function renderChart(metric) {
       .attr("d", line);
   }
 
-  if (forecastValues.length > 1) {
+  if (projectedSarcee.length > 1) {
     svg.append("path")
-      .datum(forecastValues)
+      .datum(projectedSarcee)
       .attr("fill", "none")
       .attr("stroke", SARCEE_COLOR)
-      .attr("stroke-width", 2.5)
+      .attr("stroke-width", 2)
       .attr("stroke-dasharray", "7 5")
+      .attr("opacity", 0.85)
+      .attr("d", line);
+  }
+
+  if (diversionValues.length > 1) {
+    svg.append("path")
+      .datum(diversionValues)
+      .attr("fill", "none")
+      .attr("stroke", DIVERSION_COLOR)
+      .attr("stroke-width", 2)
       .attr("opacity", 0.9)
       .attr("d", line);
   }
@@ -858,10 +918,15 @@ function renderChart(metric) {
       .attr("class", "legend-item")
       .html(`<span class="legend-swatch" style="background:${item.color}"></span>${displayStationShortName(item.station)}`);
   }
-  if (forecastValues.length > 1) {
+  if (projectedSarcee.length > 1) {
     legend.append("span")
       .attr("class", "legend-item")
-      .html(`<span class="legend-swatch" style="background:${SARCEE_COLOR}"></span>Sarcee estimate from Bragg +${BRAGG_TO_SARCEE_LAG_HOURS}h`);
+      .html(`<span class="legend-swatch" style="background:${SARCEE_COLOR}"></span>Sarcee projected from Bragg +${BRAGG_TO_SARCEE_LAG_HOURS}h`);
+  }
+  if (diversionValues.length > 1) {
+    legend.append("span")
+      .attr("class", "legend-item")
+      .html(`<span class="legend-swatch" style="background:${DIVERSION_COLOR}"></span>Est. SR1 diversion (projected − actual Sarcee)`);
   }
 }
 
