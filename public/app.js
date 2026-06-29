@@ -211,7 +211,7 @@ function render() {
   statusStrip.className = availableCount ? "status-strip" : "status-strip warning";
   statusStrip.textContent = `${availableCount} of ${latestData.stations.length} downstream stations have ${metricConfig[metric].label.toLowerCase()} data for the selected ${latestData.range.days}-day history. Last checked ${formatTime(latestData.checkedAt)}.`;
 
-  sourceText.textContent = `WaterOffice real-time CSV, ${latestData.range.days} days`;
+  sourceText.textContent = `Alberta River Basins + WaterOffice, freshest per station, ${latestData.range.days} days`;
   chartTitle.textContent = `${metricConfig[metric].label} over time`;
 
   renderCards(metric);
@@ -234,6 +234,13 @@ function renderCards(metric) {
       ? `<br>Estimated next ${formatTime(sarceeForecast.at)}: ${formatNumber(sarceeForecast.value, 1)} m3/s from Bragg +${BRAGG_TO_SARCEE_LAG_HOURS}h`
       : "";
 
+    const provider = latestData.providers?.[station.id]?.[metricConfig[metric].parameter];
+    const providerLabel = provider === "alberta"
+      ? "Live: Alberta River Basins"
+      : provider === "wateroffice"
+        ? "Live: WaterOffice"
+        : "";
+
     return `
       <article class="station-card ${unavailable ? "unavailable" : ""}">
         <div class="station-name">
@@ -246,7 +253,7 @@ function renderCards(metric) {
         ${metricLine("Level", level, "m")}
         ${metricLine("Flow", flow, "m3/s")}
         <p class="metric-change">${summary ? `Latest ${metricConfig[metric].label.toLowerCase()} at ${formatTime(summary.latestAt)} · age ${formatNumber(summary.ageMinutes, 1)} min · range ${formatNumber(summary.min)}-${formatNumber(summary.max)} ${summary.unit}.${sarceeForecastText}` : "No current unit values returned for this station and metric."}</p>
-        <p class="station-source"><a href="https://wateroffice.ec.gc.ca/report/real_time_e.html?stn=${station.id}" target="_blank" rel="noopener">Verify on WaterOffice ↗</a></p>
+        <p class="station-source">${providerLabel ? `${providerLabel} · ` : ""}<a href="https://wateroffice.ec.gc.ca/report/real_time_e.html?stn=${station.id}" target="_blank" rel="noopener">Verify on WaterOffice ↗</a></p>
       </article>
     `;
   }).join("");

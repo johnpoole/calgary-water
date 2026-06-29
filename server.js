@@ -237,6 +237,193 @@ function parseReadings(csv) {
     .filter((row) => row.stationId && Number.isFinite(row.value) && !Number.isNaN(row.timestamp.getTime()));
 }
 
+// Alberta River Basins (rivers.alberta.ca) reads the provincial WISKI telemetry
+// directly and often posts a gauge sooner than the federal WaterOffice mirror.
+// There is no documented public API; these timeseries IDs come from the
+// station manifest layer and may change if Alberta changes their site:
+//   https://rivers.alberta.ca/proxy.ashx?https://geospatial.alberta.ca/europa/rest/services/arb/alberta_river_basins/MapServer/1/query?where=catchment_number='05BJ'&outFields=station_number,tsID,secRiver&f=json
+// "flow" is the primary (discharge) timeseries; "level" is the secondary (stage).
+const ALBERTA_TIMESERIES = {
+  "05BJ004": { flow: "345370042", level: "480552042" },
+  "05BJ010": { flow: "345371042", level: "480553042" },
+  "05BJ001": { flow: "345368042", level: "479270042" }
+};
+const ALBERTA_PARAMETER_BY_KEY = { flow: "47", level: "46" };
+const ALBERTA_TIME_ZONE = "America/Edmonton";
+const ALBERTA_HEADERS = {
+  // The download service rejects requests without a rivers.alberta.ca referer.
+  Referer: "https://rivers.alberta.ca/",
+  "User-Agent": "Mozilla/5.0 (compatible; ElbowRiverMonitor)"
+};
+
+function albertaZoneParts(timeZone, instant) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+  const parts = {};
+  for (const part of formatter.formatToParts(instant)) {
+    parts[part.type] = part.value;
+  }
+  return parts;
+}
+
+// Alberta's CSV timestamps are local wall-clock time with no zone marker.
+// Convert them to a UTC instant using the Edmonton zone offset at that moment,
+// refining once so days that cross a daylight-saving change resolve correctly.
+function mountainToUtc(year, month, day, hour, minute, second) {
+  const wallClockAsUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+  let offset = mountainOffsetMs(wallClockAsUtc);
+  let utc = wallClockAsUtc - offset;
+  offset = mountainOffsetMs(utc);
+  return new Date(wallClockAsUtc - offset);
+}
+
+function mountainOffsetMs(instantMs) {
+  const parts = albertaZoneParts(ALBERTA_TIME_ZONE, new Date(instantMs));
+  const asUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second)
+  );
+  return asUtc - instantMs;
+}
+
+function albertaDate(date) {
+  const parts = albertaZoneParts(ALBERTA_TIME_ZONE, date);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function parseAlbertaCsv(csv, stationId, parameterId) {
+  const rows = [];
+  for (const line of csv.split(/\r?\n/)) {
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+    const [timestampText, valueText] = line.split(";");
+    if (!timestampText || valueText === undefined || valueText.trim() === "") {
+      continue;
+    }
+    const match = timestampText.trim().match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+    if (!match) {
+      continue;
+    }
+    const value = Number(valueText);
+    if (!Number.isFinite(value)) {
+      continue;
+    }
+    const timestamp = mountainToUtc(
+      Number(match[1]), Number(match[2]), Number(match[3]),
+      Number(match[4]), Number(match[5]), Number(match[6])
+    );
+    rows.push({ stationId, timestamp, parameter: parameterId, value, approval: "Provisional" });
+  }
+  return rows.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+async function fetchAlbertaSeries(stationId, parameterId, tsId, start, end) {
+  const from = albertaDate(start);
+  const to = albertaDate(new Date(end.getTime() + 24 * 60 * 60 * 1000));
+  const url = `https://rivers.alberta.ca/WiskiLiveDataService/Download?tsId=${encodeURIComponent(tsId)}&from=${from}&to=${to}&filename=arb&zip=false`;
+  const response = await fetch(url, { headers: ALBERTA_HEADERS });
+
+  if (!response.ok) {
+    throw new Error(`Alberta WISKI returned HTTP ${response.status} for tsId ${tsId} (station ${stationId}, parameter ${parameterId})`);
+  }
+
+  const csv = await response.text();
+  return parseAlbertaCsv(csv, stationId, parameterId)
+    .filter((row) => row.timestamp >= start && row.timestamp <= end);
+}
+
+// Fetch every mapped Alberta series; a failure for one series is logged and
+// returns empty so the per-series WaterOffice fallback can take over.
+async function fetchAlbertaReadings(start, end) {
+  const tasks = [];
+  for (const [stationId, timeseries] of Object.entries(ALBERTA_TIMESERIES)) {
+    for (const [key, tsId] of Object.entries(timeseries)) {
+      const parameterId = ALBERTA_PARAMETER_BY_KEY[key];
+      tasks.push(
+        fetchAlbertaSeries(stationId, parameterId, tsId, start, end)
+          .then((rows) => ({ stationId, parameterId, rows }))
+          .catch((error) => {
+            console.warn(`Alberta fetch failed for ${stationId}/${parameterId}: ${error.message}`);
+            return { stationId, parameterId, rows: [] };
+          })
+      );
+    }
+  }
+  const results = await Promise.all(tasks);
+  const byKey = new Map();
+  for (const result of results) {
+    byKey.set(`${result.stationId}:${result.parameterId}`, result.rows);
+  }
+  return byKey;
+}
+
+function latestTimestampMs(rows) {
+  let latest = 0;
+  for (const row of rows) {
+    const time = row.timestamp.getTime();
+    if (time > latest) {
+      latest = time;
+    }
+  }
+  return latest;
+}
+
+// For each station and parameter, use whichever source has the more recent
+// latest reading; fall back to whichever source has data. Each series stays
+// entirely from one source, so the line never mixes values mid-stream.
+function chooseFreshestReadings(albertaByKey, waterOfficeReadings) {
+  const readings = [];
+  const providers = {};
+
+  for (const station of STATIONS) {
+    providers[station.id] = {};
+    for (const parameterId of Object.keys(PARAMETERS)) {
+      const albertaRows = albertaByKey.get(`${station.id}:${parameterId}`) || [];
+      const waterOfficeRows = waterOfficeReadings.filter(
+        (row) => row.stationId === station.id && row.parameter === parameterId
+      );
+
+      let chosen = [];
+      let provider = null;
+      if (albertaRows.length && waterOfficeRows.length) {
+        if (latestTimestampMs(albertaRows) >= latestTimestampMs(waterOfficeRows)) {
+          chosen = albertaRows;
+          provider = "alberta";
+        } else {
+          chosen = waterOfficeRows;
+          provider = "wateroffice";
+        }
+      } else if (albertaRows.length) {
+        chosen = albertaRows;
+        provider = "alberta";
+      } else if (waterOfficeRows.length) {
+        chosen = waterOfficeRows;
+        provider = "wateroffice";
+      }
+
+      readings.push(...chosen);
+      if (provider) {
+        providers[station.id][parameterId] = provider;
+      }
+    }
+  }
+
+  return { readings, providers };
+}
+
 async function fetchGlenmoreStorage(days) {
   const where = encodeURIComponent(`station_number='05BJ008' AND timestamp > '${new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()}'`);
   const select = encodeURIComponent("station_number,station_name,timestamp,level,flow");
@@ -308,16 +495,26 @@ async function handleApi(req, res, url) {
     const days = Math.max(1, Math.min(90, Number(url.searchParams.get("days") || 7)));
     const end = new Date();
     const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
-    const source = buildWaterOfficeUrl({ stationIds: STATIONS.map((station) => station.id), start, end });
-    const response = await fetch(source);
+    const waterOfficeUrl = buildWaterOfficeUrl({ stationIds: STATIONS.map((station) => station.id), start, end });
 
-    if (!response.ok) {
-      sendJson(res, 502, { error: `WaterOffice returned HTTP ${response.status}` });
+    const [albertaByKey, waterOfficeReadings] = await Promise.all([
+      fetchAlbertaReadings(start, end),
+      fetch(waterOfficeUrl).then(async (response) => {
+        if (!response.ok) {
+          console.warn(`WaterOffice returned HTTP ${response.status}`);
+          return [];
+        }
+        return parseReadings(await response.text());
+      })
+    ]);
+
+    const { readings, providers } = chooseFreshestReadings(albertaByKey, waterOfficeReadings);
+
+    if (readings.length === 0) {
+      sendJson(res, 502, { error: "No readings available from Alberta River Basins or WaterOffice" });
       return;
     }
 
-    const csv = await response.text();
-    const readings = parseReadings(csv);
     const summaries = Object.fromEntries(STATIONS.map((station) => [station.id, summarize(station, readings)]));
 
     sendJson(res, 200, {
@@ -326,13 +523,15 @@ async function handleApi(req, res, url) {
       stations: STATIONS,
       parameters: PARAMETERS,
       summaries,
+      providers,
       readings: readings.map((row) => ({
         stationId: row.stationId,
         timestamp: row.timestamp.toISOString(),
         parameter: row.parameter,
         value: row.value
       })),
-      source
+      source: "Alberta River Basins (WISKI) with WaterOffice fallback, freshest per station",
+      waterOfficeSource: waterOfficeUrl
     });
     return;
   }
