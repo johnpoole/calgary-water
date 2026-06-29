@@ -286,11 +286,11 @@ function sarceeForecastSeries() {
     .map((row) => ({ stationId: "05BJ010-estimate", date: row.date, value: row.value }));
 }
 
-// projected minus actual at each Sarcee reading. When SR1 is diverting, actual
-// Sarcee falls below the projection and this gap is the estimated diversion
-// rate. Near zero (or slightly negative from routing error and tributary
-// inflow) when no diversion is happening.
-function sarceeDiversionSeries(projected) {
+// Align the projected Sarcee (Bragg routed +9h) with actual Sarcee readings,
+// interpolating the projection onto each actual timestamp. Returns one row per
+// actual reading with the projected value, the actual value, and their gap.
+function sarceeProjectedVsActual() {
+  const projected = sarceeProjectedSeries();
   const sarceeActual = latestData.readings
     .filter((row) => row.stationId === "05BJ010" && row.parameter === metricConfig.flow.parameter)
     .map((row) => ({ date: new Date(row.timestamp), value: row.value }))
@@ -303,7 +303,7 @@ function sarceeDiversionSeries(projected) {
   const projectStartMs = projected[0].date.getTime();
   const projectEndMs = projected.at(-1).date.getTime();
   const bisect = d3.bisector((row) => row.date).left;
-  const result = [];
+  const aligned = [];
 
   for (const actual of sarceeActual) {
     const timeMs = actual.date.getTime();
@@ -321,10 +321,60 @@ function sarceeDiversionSeries(projected) {
       const fraction = span > 0 ? (actual.date - left.date) / span : 0;
       projectedValue = left.value + (right.value - left.value) * fraction;
     }
-    result.push({ date: actual.date, value: projectedValue - actual.value });
+    aligned.push({ date: actual.date, projected: projectedValue, actual: actual.value, gap: projectedValue - actual.value });
   }
 
-  return result;
+  return aligned;
+}
+
+// projected minus actual at each Sarcee reading. When SR1 is diverting, actual
+// Sarcee falls below the projection and this gap is the estimated diversion
+// rate. Near zero (or slightly negative from routing error and tributary
+// inflow) when no diversion is happening.
+function sarceeDiversionSeries() {
+  return sarceeProjectedVsActual().map((row) => ({ date: row.date, value: row.gap }));
+}
+
+function median(values) {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// Integrate the estimated diversion rate to get cumulative volume into SR1, up
+// to endTimeMs. Diversion is only counted when the projected (routed) flow is
+// above the SR1 trigger and the gap exceeds the inter-gauge inflow baseline, so
+// noise around that baseline does not register as a fill.
+function sr1DivertedVolume(capacityM3, endTimeMs = Infinity) {
+  const aligned = sarceeProjectedVsActual();
+  if (aligned.length < 2) {
+    return null;
+  }
+
+  const baselineGaps = aligned.filter((row) => row.projected <= SR1_FLOW_TRIGGER_M3S).map((row) => row.gap);
+  const baseline = median(baselineGaps.length ? baselineGaps : aligned.map((row) => row.gap));
+  const rateOf = (row) => (row.projected > SR1_FLOW_TRIGGER_M3S ? Math.max(0, row.gap - baseline) : 0);
+
+  let volumeM3 = 0;
+  for (let index = 1; index < aligned.length; index += 1) {
+    const previous = aligned[index - 1];
+    const current = aligned[index];
+    if (current.date.getTime() > endTimeMs) {
+      break;
+    }
+    const seconds = (current.date.getTime() - previous.date.getTime()) / 1000;
+    volumeM3 += ((rateOf(previous) + rateOf(current)) / 2) * seconds;
+  }
+
+  return {
+    volumeM3,
+    volumeDam3: volumeM3 / 1000,
+    pctFull: capacityM3 ? (volumeM3 / capacityM3) * 100 : null,
+    baseline
+  };
 }
 
 function estimateSarceeForecast() {
@@ -691,12 +741,17 @@ function renderFlowMap() {
   } : null;
 
   if (sr1Point && sr1Location) {
+    const sr1Diversion = sr1DivertedVolume(sr1Location.capacityM3, new Date(selectedTime).getTime());
+    const sr1FillFraction = sr1Diversion && Number.isFinite(sr1Diversion.pctFull)
+      ? Math.min(1, sr1Diversion.pctFull / 100)
+      : 0;
+
     svg.append("circle")
       .attr("cx", sr1Point.x)
       .attr("cy", sr1Point.y)
       .attr("r", 24)
-      .attr("fill", "#ffffff")
-      .attr("fill-opacity", 0.72)
+      .attr("fill", "#d98a3d")
+      .attr("fill-opacity", 0.1 + sr1FillFraction * 0.7)
       .attr("stroke", "#b65a18")
       .attr("stroke-width", 2.5)
       .attr("stroke-dasharray", "6 5");
@@ -713,14 +768,14 @@ function renderFlowMap() {
       .attr("x", sr1Point.x)
       .attr("y", sr1Point.y + 4)
       .attr("text-anchor", "middle")
-      .text("no live level");
+      .text(sr1Diversion ? `${formatNumber(sr1Diversion.volumeDam3, 0)} dam3 in` : "no live level");
 
     svg.append("text")
       .attr("class", "flow-map-meta")
       .attr("x", sr1Point.x)
       .attr("y", sr1Point.y + 18)
       .attr("text-anchor", "middle")
-      .text(`${formatNumber(sr1Location.capacityM3 / 1000, 0)} dam3 cap.`);
+      .text(sr1Diversion ? `${formatNumber(sr1Diversion.pctFull, 1)}% of cap (est.)` : `${formatNumber(sr1Location.capacityM3 / 1000, 0)} dam3 cap.`);
   }
 
   const legendX = margin.left;
@@ -758,7 +813,7 @@ function renderChart(metric) {
     .filter((row) => row.parameter === parameter)
     .map((row) => ({ ...row, date: new Date(row.timestamp) }));
   const projectedSarcee = metric === "flow" ? sarceeProjectedSeries() : [];
-  const diversionValues = metric === "flow" ? sarceeDiversionSeries(projectedSarcee) : [];
+  const diversionValues = metric === "flow" ? sarceeDiversionSeries() : [];
   const chartReadings = readings.concat(projectedSarcee);
 
   const series = latestData.stations.map((station, index) => ({
