@@ -24,7 +24,16 @@ const metricConfig = {
 const SR1_FLOW_TRIGGER_M3S = 160;
 const GLENMORE_ACTIVE_FLOOD_STORAGE_DAM3 = 10_000;
 const GLENMORE_STALE_HOURS = 2;
+// Surveyed low-flow travel time, Bragg Creek (km 0) to Sarcee Bridge (km 28).
+// Used as the fallback when the data carries no flood signal to calibrate
+// against; otherwise braggToSarceeLagHours() recovers a shorter flood lag.
 const BRAGG_TO_SARCEE_LAG_HOURS = 9;
+const LAG_MIN_HOURS = 3;
+const LAG_MAX_HOURS = 10;
+const LAG_STEP_HOURS = 0.25;
+// Minimum Sarcee flow range (m3/s) over the window before the cross-correlation
+// is trusted. Below this the two gauges are flat and the best-fit lag is noise.
+const LAG_SIGNAL_MIN_M3S = 20;
 const colors = ["#0f7f8c", "#395f9d", "#7b8b2e", "#c17427", "#8f5542"];
 const SARCEE_COLOR = "#395f9d";
 const DIVERSION_COLOR = "#7a3aa0";
@@ -232,7 +241,7 @@ function renderCards(metric) {
 
     const sarceeForecast = station.id === "05BJ010" && metric === "flow" ? estimateSarceeForecast() : null;
     const sarceeForecastText = sarceeForecast
-      ? `<br>Estimated next ${formatTime(sarceeForecast.at)}: ${formatNumber(sarceeForecast.value, 1)} m3/s from Bragg +${BRAGG_TO_SARCEE_LAG_HOURS}h`
+      ? `<br>Estimated next ${formatTime(sarceeForecast.at)}: ${formatNumber(sarceeForecast.value, 1)} m3/s from Bragg +${formatNumber(braggToSarceeLagHours(), 1)}h`
       : "";
 
     const provider = latestData.providers?.[station.id]?.[metricConfig[metric].parameter];
@@ -260,14 +269,108 @@ function renderCards(metric) {
   }).join("");
 }
 
+function stationFlowSeries(stationId) {
+  return latestData.readings
+    .filter((row) => row.stationId === stationId && row.parameter === metricConfig.flow.parameter)
+    .map((row) => ({ ms: new Date(row.timestamp).getTime(), value: row.value }))
+    .sort((a, b) => a.ms - b.ms);
+}
+
+// Linear interpolation of a {ms, value} series at an arbitrary instant; null
+// outside the series' time span so callers can skip unsupported points.
+function interpolateAt(series, ms) {
+  if (series.length === 0 || ms < series[0].ms || ms > series.at(-1).ms) {
+    return null;
+  }
+  const index = d3.bisector((row) => row.ms).left(series, ms);
+  const right = series[Math.min(series.length - 1, index)];
+  const left = series[Math.max(0, index - 1)];
+  if (left === right) {
+    return left.value;
+  }
+  const span = right.ms - left.ms;
+  return span > 0 ? left.value + (right.value - left.value) * (ms - left.ms) / span : left.value;
+}
+
+// Travel time from Bragg to Sarcee shortens as flow rises (a flood wave moves
+// faster than low summer flow). When the data carries a real flood signal we
+// recover the lag empirically: the shift that best lines the two gauges up,
+// scored by Pearson correlation of Bragg(t) against Sarcee(t+lag). With no
+// signal — flat flow, where the correlation is just noise — fall back to the
+// surveyed low-flow value. Bounded to LAG_MIN..LAG_MAX so a bad fit can't
+// produce an absurd lag.
+function computeBraggSarceeLagHours() {
+  const bragg = stationFlowSeries("05BJ004");
+  const sarcee = stationFlowSeries("05BJ010");
+  if (bragg.length < 2 || sarcee.length < 2) {
+    return BRAGG_TO_SARCEE_LAG_HOURS;
+  }
+  const sarceeValues = sarcee.map((row) => row.value);
+  if (Math.max(...sarceeValues) - Math.min(...sarceeValues) < LAG_SIGNAL_MIN_M3S) {
+    return BRAGG_TO_SARCEE_LAG_HOURS;
+  }
+
+  let bestLag = BRAGG_TO_SARCEE_LAG_HOURS;
+  let bestCorr = -Infinity;
+  for (let lag = LAG_MIN_HOURS; lag <= LAG_MAX_HOURS + 1e-9; lag += LAG_STEP_HOURS) {
+    const lagMs = lag * 3_600_000;
+    let n = 0;
+    let sumB = 0;
+    let sumS = 0;
+    let sumBB = 0;
+    let sumSS = 0;
+    let sumBS = 0;
+    for (const point of sarcee) {
+      const braggValue = interpolateAt(bragg, point.ms - lagMs);
+      if (braggValue === null) {
+        continue;
+      }
+      n += 1;
+      sumB += braggValue;
+      sumS += point.value;
+      sumBB += braggValue * braggValue;
+      sumSS += point.value * point.value;
+      sumBS += braggValue * point.value;
+    }
+    if (n < 3) {
+      continue;
+    }
+    const covariance = sumBS / n - (sumB / n) * (sumS / n);
+    const varB = sumBB / n - (sumB / n) ** 2;
+    const varS = sumSS / n - (sumS / n) ** 2;
+    if (varB <= 0 || varS <= 0) {
+      continue;
+    }
+    const correlation = covariance / Math.sqrt(varB * varS);
+    if (correlation > bestCorr) {
+      bestCorr = correlation;
+      bestLag = lag;
+    }
+  }
+  return bestLag;
+}
+
+// Cross-correlation over the whole window is the same for every caller in a
+// render pass, so compute it once per loaded dataset.
+let lagCacheData = null;
+let lagCacheHours = BRAGG_TO_SARCEE_LAG_HOURS;
+function braggToSarceeLagHours() {
+  if (lagCacheData !== latestData) {
+    lagCacheData = latestData;
+    lagCacheHours = computeBraggSarceeLagHours();
+  }
+  return lagCacheHours;
+}
+
 // Bragg Creek flow routed downstream to Sarcee by the travel lag, across the
 // whole window. With no diversion this is what Sarcee should read; the part
 // beyond Sarcee's latest reading is the forward forecast.
 function sarceeProjectedSeries() {
+  const lagMs = braggToSarceeLagHours() * 3_600_000;
   return latestData.readings
     .filter((row) => row.stationId === "05BJ004" && row.parameter === metricConfig.flow.parameter)
     .map((row) => ({
-      date: new Date(new Date(row.timestamp).getTime() + BRAGG_TO_SARCEE_LAG_HOURS * 3_600_000),
+      date: new Date(new Date(row.timestamp).getTime() + lagMs),
       value: row.value
     }))
     .sort((a, b) => a.date - b.date);
@@ -280,7 +383,7 @@ function sarceeForecastSeries() {
   }
 
   const sarceeLatestMs = new Date(sarceeLatest).getTime();
-  const horizonMs = sarceeLatestMs + BRAGG_TO_SARCEE_LAG_HOURS * 3_600_000;
+  const horizonMs = sarceeLatestMs + braggToSarceeLagHours() * 3_600_000;
   return sarceeProjectedSeries()
     .filter((row) => row.date.getTime() > sarceeLatestMs && row.date.getTime() <= horizonMs)
     .map((row) => ({ stationId: "05BJ010-estimate", date: row.date, value: row.value }));
@@ -375,6 +478,54 @@ function sr1DivertedVolume(capacityM3, endTimeMs = Infinity) {
     pctFull: capacityM3 ? (volumeM3 / capacityM3) * 100 : null,
     baseline
   };
+}
+
+// Lag-independent cross-check on the diverted volume. Over a complete flood
+// wave the travel lag cancels out of the two flow integrals, so the diverted
+// volume is simply (integral of Bragg) - (integral of Sarcee) across the
+// window. This is only meaningful once both gauges have settled back toward
+// baseline (eventHasSettled); mid-event the window cuts through the wave and
+// the integral is biased. Returns dam3, or null if there is no usable overlap.
+function sarceeVolumeBalanceDam3() {
+  const bragg = stationFlowSeries("05BJ004");
+  const sarcee = stationFlowSeries("05BJ010");
+  if (bragg.length < 2 || sarcee.length < 2) {
+    return null;
+  }
+  const start = Math.max(bragg[0].ms, sarcee[0].ms);
+  const end = Math.min(bragg.at(-1).ms, sarcee.at(-1).ms);
+  if (end - start < 3_600_000) {
+    return null;
+  }
+  const stepMs = 15 * 60_000;
+  let volumeM3 = 0;
+  for (let ms = start; ms < end; ms += stepMs) {
+    const mid = ms + stepMs / 2;
+    const braggValue = interpolateAt(bragg, mid);
+    const sarceeValue = interpolateAt(sarcee, mid);
+    if (braggValue === null || sarceeValue === null) {
+      continue;
+    }
+    volumeM3 += (braggValue - sarceeValue) * (stepMs / 1000);
+  }
+  return volumeM3 / 1000;
+}
+
+// A flood event has settled once both gauges sit back near their pre-event
+// baseline (within 2x the window minimum), after the window saw flow above the
+// SR1 trigger. Until then the lag-free volume balance is not yet meaningful.
+function eventHasSettled() {
+  const bragg = stationFlowSeries("05BJ004");
+  const sarcee = stationFlowSeries("05BJ010");
+  if (bragg.length < 2 || sarcee.length < 2) {
+    return false;
+  }
+  const braggValues = bragg.map((row) => row.value);
+  const sarceeValues = sarcee.map((row) => row.value);
+  const peaked = Math.max(...braggValues) > SR1_FLOW_TRIGGER_M3S;
+  const braggCalm = bragg.at(-1).value <= Math.min(...braggValues) * 2;
+  const sarceeCalm = sarcee.at(-1).value <= Math.min(...sarceeValues) * 2;
+  return peaked && braggCalm && sarceeCalm;
 }
 
 function estimateSarceeForecast() {
@@ -584,13 +735,12 @@ function renderFlowMap() {
     .x((point) => point.x)
     .y((point) => point.y);
 
-  // Travel time is derived from the one measured lag we have: Bragg Creek (km 0)
-  // to Sarcee Bridge (km 28) takes BRAGG_TO_SARCEE_LAG_HOURS, giving a river
-  // speed we apply to every segment by distance.
+  // Travel time is derived from the live Bragg-to-Sarcee lag (km 0 to km 28),
+  // giving a river speed we apply to every segment by distance.
   const bragg = stations.find((station) => station.id === "05BJ004");
   const sarcee = stations.find((station) => station.id === "05BJ010");
   const riverSpeedKmPerH = bragg && sarcee && sarcee.downstreamKm > bragg.downstreamKm
-    ? (sarcee.downstreamKm - bragg.downstreamKm) / BRAGG_TO_SARCEE_LAG_HOURS
+    ? (sarcee.downstreamKm - bragg.downstreamKm) / braggToSarceeLagHours()
     : null;
   const selectedTimeMs = new Date(selectedTime).getTime();
   const INCREMENT_HOURS = 0.5;
@@ -776,6 +926,18 @@ function renderFlowMap() {
       .attr("y", sr1Point.y + 18)
       .attr("text-anchor", "middle")
       .text(sr1Diversion ? `${formatNumber(sr1Diversion.pctFull, 1)}% of cap (est.)` : `${formatNumber(sr1Location.capacityM3 / 1000, 0)} dam3 cap.`);
+
+    // Once the wave has passed both gauges, show the lag-free volume balance as
+    // an independent check on the running estimate.
+    const balanceDam3 = eventHasSettled() ? sarceeVolumeBalanceDam3() : null;
+    if (sr1Diversion && balanceDam3 !== null) {
+      svg.append("text")
+        .attr("class", "flow-map-meta")
+        .attr("x", sr1Point.x)
+        .attr("y", sr1Point.y + 32)
+        .attr("text-anchor", "middle")
+        .text(`balance check ${formatNumber(balanceDam3, 0)} dam3`);
+    }
   }
 
   const legendX = margin.left;
@@ -976,12 +1138,12 @@ function renderChart(metric) {
   if (projectedSarcee.length > 1) {
     legend.append("span")
       .attr("class", "legend-item")
-      .html(`<span class="legend-swatch" style="background:${SARCEE_COLOR}"></span>Sarcee projected from Bragg +${BRAGG_TO_SARCEE_LAG_HOURS}h`);
+      .html(`<span class="legend-swatch" style="background:${SARCEE_COLOR}"></span>Sarcee projected from Bragg +${formatNumber(braggToSarceeLagHours(), 1)}h`);
   }
   if (diversionValues.length > 1) {
     legend.append("span")
       .attr("class", "legend-item")
-      .html(`<span class="legend-swatch" style="background:${DIVERSION_COLOR}"></span>Est. SR1 diversion (projected − actual Sarcee)`);
+      .html(`<span class="legend-swatch" style="background:${DIVERSION_COLOR}"></span>Est. SR1 diversion (projected − actual Sarcee; excl. tributary inflow)`);
   }
 }
 
