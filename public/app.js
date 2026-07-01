@@ -37,6 +37,7 @@ const LAG_SIGNAL_MIN_M3S = 20;
 const colors = ["#0f7f8c", "#395f9d", "#7b8b2e", "#c17427", "#8f5542"];
 const SARCEE_COLOR = "#395f9d";
 const DIVERSION_COLOR = "#7a3aa0";
+const RELEASE_COLOR = "#2f8f57";
 let latestData = null;
 let storageData = null;
 let mapTimes = [];
@@ -487,20 +488,40 @@ function median(values) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+// Linear-interpolated quantile (p in [0, 1]) of a numeric array.
+function quantile(values, p) {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  if (sorted.length === 1) {
+    return sorted[0];
+  }
+  const position = p * (sorted.length - 1);
+  const low = Math.floor(position);
+  const high = Math.ceil(position);
+  return sorted[low] + (sorted[high] - sorted[low]) * (position - low);
+}
+
 // The no-diversion relationship between lagged Bragg and Sarcee:
 //   Sarcee_noSR1 = Bragg(t - lag) + b
 // Gain is pinned at 1 (downstream flow cannot be a fraction of upstream with
 // nothing removed). The gain CANNOT be fit from event data: the only high-flow
 // samples available are contaminated by the diversion we are trying to measure,
 // and least squares lets those few high-leverage points absorb the diversion
-// into the slope. b is the inter-gauge baseline inflow, taken as the median of
-// (actual - projected) over the calm, below-trigger points so the flood limbs
-// do not pull it. During a flood the true inflow grows above b, so this
-// underestimates diversion: it is a floor, not an exact figure.
+// into the slope. b is the inter-gauge baseline inflow, taken over the calm,
+// below-trigger points so the flood limbs do not pull it. A low quantile is used
+// rather than the median because an SR1 RELEASE also lands in the calm points:
+// returned water raises actual Sarcee above the projection and only ever pushes
+// (actual - projected) up, never down. The low envelope of the calm offsets is
+// therefore release-free and is the true baseline; the median would be dragged
+// upward by a sustained release and blunt the whole estimate. During a flood the
+// true inflow grows above b, so this underestimates diversion: it is a floor, not
+// an exact figure.
 function noDiversionOffset(aligned) {
   const calm = aligned.filter((row) => row.projected <= SR1_FLOW_TRIGGER_M3S);
   const offsets = (calm.length ? calm : aligned).map((row) => row.actual - row.projected);
-  return median(offsets);
+  return quantile(offsets, 0.25);
 }
 
 // Estimated diversion rate at each Sarcee reading: the no-diversion flow minus
@@ -516,11 +537,38 @@ function sarceeDiversionSeries() {
     .map((row) => ({ date: row.date, value: (row.projected + offset) - row.actual }));
 }
 
-// Integrate the estimated diversion rate to get cumulative volume into SR1, up
-// to endTimeMs (and never past the now - lag cutoff, since the most recent
-// lag-window is not yet knowable). Diversion is only counted when the routed
-// flow is above the SR1 trigger; the rate is the fitted no-diversion flow minus
-// actual Sarcee, clamped at zero so fit noise does not register as a fill.
+// Insert an interpolated { value: 0 } point wherever the series crosses zero, so
+// the diversion line can be split into a positive (into SR1) and a negative
+// (released back to the Elbow) segment that meet exactly on the axis instead of
+// leaving a gap at the crossing.
+function withZeroCrossings(series) {
+  const out = [];
+  for (let index = 0; index < series.length; index += 1) {
+    const current = series[index];
+    out.push(current);
+    const next = series[index + 1];
+    if (next && ((current.value < 0 && next.value > 0) || (current.value > 0 && next.value < 0))) {
+      const fraction = current.value / (current.value - next.value);
+      const crossMs = current.date.getTime() + (next.date.getTime() - current.date.getTime()) * fraction;
+      out.push({ date: new Date(crossMs), value: 0 });
+    }
+  }
+  return out;
+}
+
+// Integrate the estimated rate to get the NET volume held in SR1, up to endTimeMs
+// (and never past the now - lag cutoff, since the most recent lag-window is not
+// yet knowable). Two directions, split at the trigger:
+//   - above the trigger (flood) the reservoir FILLS: count the positive part of
+//     (no-diversion flow - actual Sarcee), clamped at zero so fit noise and
+//     growing tributary inflow do not register as a fill;
+//   - below the trigger (post-peak) the reservoir DRAINS as SR1 releases the
+//     stored water back into the Elbow: count the negative part (actual Sarcee
+//     above the projection is the returned water), clamped at zero the other way
+//     so calm noise does not register as a release.
+// The running total is floored at zero: the model can never release more than it
+// stored. Net volume therefore rises through the flood and draws back down over
+// the release, instead of filling and staying full.
 function sr1DivertedVolume(capacityM3, endTimeMs = Infinity) {
   const aligned = sarceeProjectedVsActual();
   if (aligned.length < 2) {
@@ -529,7 +577,10 @@ function sr1DivertedVolume(capacityM3, endTimeMs = Infinity) {
 
   const effectiveEndMs = Math.min(endTimeMs, sr1EstimateCutoffMs());
   const offset = noDiversionOffset(aligned);
-  const rateOf = (row) => (row.projected > SR1_FLOW_TRIGGER_M3S ? Math.max(0, (row.projected + offset) - row.actual) : 0);
+  const rateOf = (row) => {
+    const signed = (row.projected + offset) - row.actual;
+    return row.projected > SR1_FLOW_TRIGGER_M3S ? Math.max(0, signed) : Math.min(0, signed);
+  };
 
   let volumeM3 = 0;
   for (let index = 1; index < aligned.length; index += 1) {
@@ -539,7 +590,7 @@ function sr1DivertedVolume(capacityM3, endTimeMs = Infinity) {
       break;
     }
     const seconds = (current.date.getTime() - previous.date.getTime()) / 1000;
-    volumeM3 += ((rateOf(previous) + rateOf(current)) / 2) * seconds;
+    volumeM3 = Math.max(0, volumeM3 + ((rateOf(previous) + rateOf(current)) / 2) * seconds);
   }
 
   return {
@@ -988,7 +1039,7 @@ function renderFlowMap() {
       .attr("x", sr1Point.x)
       .attr("y", sr1Point.y + 4)
       .attr("text-anchor", "middle")
-      .text(sr1Diversion ? `${formatNumber(sr1Diversion.volumeDam3, 0)} dam3 in` : "no live level");
+      .text(sr1Diversion ? `${formatNumber(sr1Diversion.volumeDam3, 0)} dam3 net` : "no live level");
 
     svg.append("text")
       .attr("class", "flow-map-meta")
@@ -1152,13 +1203,34 @@ function renderChart(metric) {
   }
 
   if (diversionValues.length > 1) {
+    // Split at the axis: above zero is water diverted into SR1, below zero is
+    // SR1 releasing its stored water back into the Elbow (the "unexplained"
+    // rise at Sarcee above what Bragg Creek can account for).
+    const diversionSplit = withZeroCrossings(diversionValues);
+    const diversionLine = d3.line()
+      .defined((row) => Number.isFinite(row.value) && row.value >= 0)
+      .x((row) => x(row.date))
+      .y((row) => y(row.value));
+    const releaseLine = d3.line()
+      .defined((row) => Number.isFinite(row.value) && row.value <= 0)
+      .x((row) => x(row.date))
+      .y((row) => y(row.value));
+
     svg.append("path")
-      .datum(diversionValues)
+      .datum(diversionSplit)
       .attr("fill", "none")
       .attr("stroke", DIVERSION_COLOR)
       .attr("stroke-width", 2)
       .attr("opacity", 0.9)
-      .attr("d", line);
+      .attr("d", diversionLine);
+
+    svg.append("path")
+      .datum(diversionSplit)
+      .attr("fill", "none")
+      .attr("stroke", RELEASE_COLOR)
+      .attr("stroke-width", 2)
+      .attr("opacity", 0.9)
+      .attr("d", releaseLine);
   }
 
   const focusLayer = svg.append("g");
@@ -1214,6 +1286,11 @@ function renderChart(metric) {
     legend.append("span")
       .attr("class", "legend-item")
       .html(`<span class="legend-swatch" style="background:${DIVERSION_COLOR}"></span>Est. SR1 diversion (no-SR1 Sarcee − actual; floor, excl. growing tributary inflow)`);
+  }
+  if (diversionValues.some((row) => row.value < 0)) {
+    legend.append("span")
+      .attr("class", "legend-item")
+      .html(`<span class="legend-swatch" style="background:${RELEASE_COLOR}"></span>Est. SR1 release (Sarcee above the Bragg projection = stored water returning to the Elbow)`);
   }
 }
 
