@@ -685,7 +685,8 @@ function buildMonitorPayload(days) {
       offset: model.offset,
       capacityM3: SR1_CAPACITY_M3,
       projectedSarcee: windowSeries(model.projected, displayStartMs).map(toStamped),
-      diversion: windowSeries(model.diversion, displayStartMs).map(toStamped),
+      inflow: windowSeries(model.inflow, displayStartMs).map(toStamped),
+      outflow: windowSeries(model.outflow, displayStartMs).map(toStamped),
       volumeSeries: windowSeries(model.volumeSeries, displayStartMs).map(toStamped),
       forecast: model.forecast
         ? { at: new Date(model.forecast.atMs).toISOString(), value: model.forecast.value }

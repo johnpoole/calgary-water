@@ -312,8 +312,11 @@ function sarceeProjectedSeries() {
   return (latestData.sr1?.projectedSarcee || []).map((row) => ({ date: new Date(row.timestamp), value: row.value }));
 }
 
-function sarceeDiversionSeries() {
-  return (latestData.sr1?.diversion || []).map((row) => ({ date: new Date(row.timestamp), value: row.value }));
+// Server-computed SR1 rate series, already gated and non-negative. kind is
+// "inflow" (water diverted into the reservoir) or "outflow" (stored water
+// released back to the Elbow).
+function sr1RateSeries(kind) {
+  return (latestData.sr1?.[kind] || []).map((row) => ({ date: new Date(row.timestamp), value: row.value }));
 }
 
 // Net volume held in SR1 at a given instant, read from the server-computed
@@ -781,7 +784,8 @@ function renderChart(metric) {
     .filter((row) => row.parameter === parameter)
     .map((row) => ({ ...row, date: new Date(row.timestamp) }));
   const projectedSarcee = metric === "flow" ? sarceeProjectedSeries() : [];
-  const diversionValues = metric === "flow" ? sarceeDiversionSeries() : [];
+  const inflowValues = metric === "flow" ? sr1RateSeries("inflow") : [];
+  const outflowValues = metric === "flow" ? sr1RateSeries("outflow") : [];
   const chartReadings = readings.concat(projectedSarcee);
 
   const series = latestData.stations.map((station, index) => ({
@@ -810,8 +814,7 @@ function renderChart(metric) {
     .domain(d3.extent(chartReadings, (row) => row.date))
     .range([margin.left, width - margin.right]);
 
-  const diversionMagnitudes = diversionValues.map((row) => ({ value: Math.abs(row.value) }));
-  const yExtent = d3.extent(chartReadings.concat(diversionMagnitudes), (row) => row.value);
+  const yExtent = d3.extent(chartReadings.concat(inflowValues, outflowValues), (row) => row.value);
   const yDomain = metric === "flow"
     ? [Math.min(yExtent[0], 0), Math.max(yExtent[1], SR1_FLOW_TRIGGER_M3S)]
     : yExtent;
@@ -888,14 +891,12 @@ function renderChart(metric) {
       .attr("d", line);
   }
 
-  if (diversionValues.length > 1) {
+  if (inflowValues.length > 1) {
     // SR1 inflow and outflow as two separate lines rising from a zero baseline.
-    // Inflow is water diverted into the reservoir (actual Sarcee below the Bragg
-    // projection); outflow is stored water released back to the Elbow (actual
-    // Sarcee above it). Both are drawn as positive magnitudes so the outflow
-    // reads as its own line instead of a dip below the inflow line.
-    const inflowValues = diversionValues.map((row) => ({ date: row.date, value: Math.max(0, row.value) }));
-    const outflowValues = diversionValues.map((row) => ({ date: row.date, value: Math.max(0, -row.value) }));
+    // Inflow is water diverted into the reservoir; outflow is stored water
+    // released back to the Elbow. Both come from the server already gated
+    // (no outflow during the flood or before the reservoir holds water) and
+    // non-negative, so each is just plotted as its own line.
     const rateLine = d3.line()
       .defined((row) => Number.isFinite(row.value))
       .x((row) => x(row.date))
@@ -967,7 +968,7 @@ function renderChart(metric) {
       .attr("class", "legend-item")
       .html(`<span class="legend-swatch" style="background:${SARCEE_COLOR}"></span>Sarcee projected from Bragg +${formatNumber(braggToSarceeLagHours(), 1)}h`);
   }
-  if (diversionValues.length > 1) {
+  if (inflowValues.length > 1) {
     legend.append("span")
       .attr("class", "legend-item")
       .html(`<span class="legend-swatch" style="background:${DIVERSION_COLOR}"></span>Est. SR1 inflow (Sarcee below the Bragg projection = water diverted into the reservoir)`);
