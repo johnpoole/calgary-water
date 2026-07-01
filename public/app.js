@@ -180,15 +180,48 @@ function mapLabelOffset(station, index) {
   return index % 2 === 0 ? -22 : 30;
 }
 
+const NORMAL_REFRESH_MS = 10 * 60 * 1000;
+// After a failed load, retry soon rather than waiting a full cycle. The server
+// returns 503 while it bootstraps its history on a cold start (a few seconds),
+// so a short retry means the page fills in as soon as the server is ready
+// instead of staying stuck on the error until the next 10-minute tick.
+const RETRY_REFRESH_MS = 8 * 1000;
+// Abort a request that hangs (e.g. a Render container still spinning up) so it
+// fails into the retry path instead of waiting forever.
+const LOAD_TIMEOUT_MS = 30 * 1000;
+let refreshTimer = null;
+
+function scheduleNextLoad(delayMs) {
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+  }
+  refreshTimer = setTimeout(loadData, delayMs);
+}
+
+async function fetchWithTimeout(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`request to ${url} timed out after ${LOAD_TIMEOUT_MS / 1000}s`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function loadData() {
   const days = rangeSelect.value;
   statusStrip.className = "status-strip";
-  statusStrip.textContent = "Loading WaterOffice readings...";
+  statusStrip.textContent = "Loading readings...";
   refreshButton.disabled = true;
 
   try {
-    const response = await fetch(`/api/monitor?days=${encodeURIComponent(days)}`);
-    const storageResponse = await fetch(`/api/storage?days=${encodeURIComponent(days)}`);
+    const response = await fetchWithTimeout(`/api/monitor?days=${encodeURIComponent(days)}`);
+    const storageResponse = await fetchWithTimeout(`/api/storage?days=${encodeURIComponent(days)}`);
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw new Error(body.error || `Monitor API returned HTTP ${response.status}`);
@@ -199,9 +232,11 @@ async function loadData() {
     latestData = await response.json();
     storageData = await storageResponse.json();
     render();
+    scheduleNextLoad(NORMAL_REFRESH_MS);
   } catch (error) {
     statusStrip.className = "status-strip warning";
-    statusStrip.textContent = `Unable to load readings: ${error.message}`;
+    statusStrip.textContent = `Unable to load readings (retrying in ${RETRY_REFRESH_MS / 1000}s): ${error.message}`;
+    scheduleNextLoad(RETRY_REFRESH_MS);
   } finally {
     refreshButton.disabled = false;
   }
@@ -1154,5 +1189,7 @@ async function loadBuildLabel() {
 }
 
 loadBuildLabel();
+// loadData reschedules itself: NORMAL_REFRESH_MS after a success, RETRY_REFRESH_MS
+// after a failure. This replaces a fixed interval so a cold-start failure recovers
+// within seconds instead of waiting a full cycle.
 loadData();
-setInterval(loadData, 10 * 60 * 1000);
