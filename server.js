@@ -9,23 +9,17 @@ const HOST = process.env.HOST || "0.0.0.0";
 const PUBLIC_DIR = resolve("public");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// How much history the server keeps and serves. Covers the largest display
-// window (90 days) and gives the SR1 model a window that always includes calm,
-// no-diversion flow so the travel-lag and offset calibration is stable.
-const RETENTION_DAYS = 90;
+// How much history the server keeps and serves. Covers the largest display window
+// and gives the SR1 model a window that always includes calm, no-diversion flow
+// so the travel-lag and offset calibration is stable. Kept to 30 days so the
+// stored series and its transient CSV parse fit comfortably in a 512 MB instance
+// (90 days peaked over the limit and the instance was OOM-killed).
+const RETENTION_DAYS = 30;
 // Background refresh cadence and how far back each incremental fetch reaches. The
 // overlap re-pulls the last few hours so late-arriving or revised points land.
 const REFRESH_MS = 10 * 60 * 1000;
 const REFRESH_LOOKBACK_MS = 6 * 60 * 60 * 1000;
 const STORAGE_REFRESH_DAYS = 2;
-// Cold start: seed enough history for a stable calibration and the common display
-// windows, become ready, then extend back to RETENTION_DAYS in the background a
-// chunk at a time. A single 90-day fetch blocks the event loop for many seconds
-// while its ~10 MB CSV parses, which slows even the "still loading" response. The
-// seed spans a calm, no-diversion period, so the SR1 baseline is trustworthy from
-// the first render (not the short-window artifact this whole model guards against).
-const SEED_DAYS = 30;
-const BACKFILL_CHUNK_DAYS = 30;
 
 function resolveCommit() {
   if (process.env.RENDER_GIT_COMMIT) {
@@ -151,19 +145,6 @@ function parseCsvLine(line) {
   return values;
 }
 
-function parseWaterOfficeCsv(csv) {
-  const lines = csv.replace(/^﻿/, "").split(/\r?\n/).filter(Boolean);
-  if (lines.length < 2) {
-    return [];
-  }
-
-  const headers = parseCsvLine(lines[0]).map((header) => header.trim().replace(/^﻿/, ""));
-  return lines.slice(1).map((line) => {
-    const values = parseCsvLine(line);
-    return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
-  });
-}
-
 function stationParams(stationId) {
   return `stations[]=${encodeURIComponent(stationId)}`;
 }
@@ -197,16 +178,46 @@ function formatWaterOfficeDate(date) {
   ].join("");
 }
 
+// Parse a WaterOffice CSV directly into reading rows, pulling only the columns we
+// need by index. Building a full header-keyed object per row (and then re-mapping
+// it) was a large transient allocation on a multi-week fetch; this keeps startup
+// memory well within the instance limit.
 function parseReadings(csv) {
-  return parseWaterOfficeCsv(csv)
-    .map((row) => ({
-      stationId: row.ID,
-      timestamp: new Date(row.Date),
-      parameter: row["Parameter/Paramètre"],
-      value: Number(row["Value/Valeur"]),
-      approval: row["Approval/Approbation"] || ""
-    }))
-    .filter((row) => row.stationId && Number.isFinite(row.value) && !Number.isNaN(row.timestamp.getTime()));
+  const lines = csv.replace(/^\uFEFF/, "").split(/\r?\n/);
+  if (lines.length < 2) {
+    return [];
+  }
+  const header = parseCsvLine(lines[0]).map((name) => name.trim().replace(/^\uFEFF/, ""));
+  const idxId = header.indexOf("ID");
+  const idxDate = header.indexOf("Date");
+  const idxParam = header.indexOf("Parameter/Paramètre");
+  const idxValue = header.indexOf("Value/Valeur");
+  const idxApproval = header.indexOf("Approval/Approbation");
+  if (idxId < 0 || idxDate < 0 || idxParam < 0 || idxValue < 0) {
+    throw new Error(`WaterOffice CSV missing expected columns; header was: ${header.join(",")}`);
+  }
+
+  const rows = [];
+  for (let i = 1; i < lines.length; i += 1) {
+    if (!lines[i]) {
+      continue;
+    }
+    const cols = parseCsvLine(lines[i]);
+    const stationId = cols[idxId];
+    const value = Number(cols[idxValue]);
+    const timestamp = new Date(cols[idxDate]);
+    if (!stationId || !Number.isFinite(value) || Number.isNaN(timestamp.getTime())) {
+      continue;
+    }
+    rows.push({
+      stationId,
+      timestamp,
+      parameter: cols[idxParam],
+      value,
+      approval: idxApproval >= 0 ? (cols[idxApproval] || "") : ""
+    });
+  }
+  return rows;
 }
 
 // Alberta River Basins (rivers.alberta.ca) reads the provincial WISKI telemetry
@@ -382,8 +393,6 @@ let storageStore = [];
 let storageSource = null;
 const state = {
   bootstrapped: false,
-  historyDaysLoaded: 0,
-  backfilling: false,
   lastRefreshOkMs: null,
   lastRefreshError: null
 };
@@ -561,7 +570,7 @@ function nearestStoragePrior(records, targetMs) {
 }
 
 // --- Data refresh loop --------------------------------------------------------
-async function ingestWindow(startMs, endMs, { allowEmpty = false } = {}) {
+async function ingestWindow(startMs, endMs) {
   const start = new Date(startMs);
   const end = new Date(endMs);
   const [albertaByKey, waterOffice] = await Promise.all([
@@ -571,9 +580,6 @@ async function ingestWindow(startMs, endMs, { allowEmpty = false } = {}) {
 
   const totalRows = [...albertaByKey.values()].reduce((sum, rows) => sum + rows.length, 0) + waterOffice.rows.length;
   if (totalRows === 0) {
-    if (allowEmpty) {
-      return;
-    }
     throw new Error(`No readings returned by Alberta River Basins or WaterOffice for ${start.toISOString()}..${end.toISOString()}`);
   }
 
@@ -595,43 +601,10 @@ async function refreshStorage(days) {
 
 async function bootstrap() {
   const now = Date.now();
-  await ingestWindow(now - SEED_DAYS * DAY_MS, now);
+  await ingestWindow(now - RETENTION_DAYS * DAY_MS, now);
   await refreshStorage(RETENTION_DAYS);
-  state.historyDaysLoaded = SEED_DAYS;
   state.bootstrapped = true;
-  console.log(`[${new Date().toISOString()}] bootstrap seeded ${SEED_DAYS}d: ${countStoredReadings()} readings, ${storageStore.length} storage records`);
-  backfillHistory();
-}
-
-// Extend the stored history back to RETENTION_DAYS one chunk at a time, in the
-// background, so readiness is not gated on a single large fetch. Each chunk is a
-// separate, smaller CSV parse. Errors are logged and stop this pass; tick()
-// resumes it on the next cycle. Guarded so only one backfill runs at a time.
-async function backfillHistory() {
-  if (state.backfilling || state.historyDaysLoaded >= RETENTION_DAYS) {
-    return;
-  }
-  state.backfilling = true;
-  try {
-    while (state.historyDaysLoaded < RETENTION_DAYS) {
-      const now = Date.now();
-      const target = Math.min(RETENTION_DAYS, state.historyDaysLoaded + BACKFILL_CHUNK_DAYS);
-      // The older slice not yet loaded, with an hour of overlap at the boundary so
-      // no gap opens (the merge de-dupes the overlap). An empty slice (no data that
-      // far back) is not an error; it just advances the marker.
-      await ingestWindow(
-        now - target * DAY_MS,
-        now - state.historyDaysLoaded * DAY_MS + 60 * 60 * 1000,
-        { allowEmpty: true }
-      );
-      state.historyDaysLoaded = target;
-      console.log(`[${new Date().toISOString()}] history backfilled to ${target}d: ${countStoredReadings()} readings`);
-    }
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] history backfill stalled at ${state.historyDaysLoaded}d: ${error.message}`);
-  } finally {
-    state.backfilling = false;
-  }
+  console.log(`[${new Date().toISOString()}] bootstrap complete: ${countStoredReadings()} readings, ${storageStore.length} storage records`);
 }
 
 async function refreshIncremental() {
@@ -658,9 +631,6 @@ async function tick() {
       await bootstrap();
     } else {
       await refreshIncremental();
-      if (state.historyDaysLoaded < RETENTION_DAYS) {
-        backfillHistory();
-      }
     }
     state.lastRefreshOkMs = Date.now();
     state.lastRefreshError = null;
