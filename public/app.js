@@ -316,25 +316,6 @@ function sarceeDiversionSeries() {
   return (latestData.sr1?.diversion || []).map((row) => ({ date: new Date(row.timestamp), value: row.value }));
 }
 
-// Insert an interpolated { value: 0 } point wherever the series crosses zero, so
-// the diversion line can be split into a positive (into SR1) and a negative
-// (released back to the Elbow) segment that meet exactly on the axis instead of
-// leaving a gap at the crossing.
-function withZeroCrossings(series) {
-  const out = [];
-  for (let index = 0; index < series.length; index += 1) {
-    const current = series[index];
-    out.push(current);
-    const next = series[index + 1];
-    if (next && ((current.value < 0 && next.value > 0) || (current.value > 0 && next.value < 0))) {
-      const fraction = current.value / (current.value - next.value);
-      const crossMs = current.date.getTime() + (next.date.getTime() - current.date.getTime()) * fraction;
-      out.push({ date: new Date(crossMs), value: 0 });
-    }
-  }
-  return out;
-}
-
 // Net volume held in SR1 at a given instant, read from the server-computed
 // cumulative series (the last point at or before endTimeMs).
 function sr1DivertedVolume(endTimeMs = Infinity) {
@@ -829,7 +810,8 @@ function renderChart(metric) {
     .domain(d3.extent(chartReadings, (row) => row.date))
     .range([margin.left, width - margin.right]);
 
-  const yExtent = d3.extent(chartReadings.concat(diversionValues), (row) => row.value);
+  const diversionMagnitudes = diversionValues.map((row) => ({ value: Math.abs(row.value) }));
+  const yExtent = d3.extent(chartReadings.concat(diversionMagnitudes), (row) => row.value);
   const yDomain = metric === "flow"
     ? [Math.min(yExtent[0], 0), Math.max(yExtent[1], SR1_FLOW_TRIGGER_M3S)]
     : yExtent;
@@ -907,34 +889,33 @@ function renderChart(metric) {
   }
 
   if (diversionValues.length > 1) {
-    // Split at the axis: above zero is water diverted into SR1, below zero is
-    // SR1 releasing its stored water back into the Elbow (the "unexplained"
-    // rise at Sarcee above what Bragg Creek can account for).
-    const diversionSplit = withZeroCrossings(diversionValues);
-    const diversionLine = d3.line()
-      .defined((row) => Number.isFinite(row.value) && row.value >= 0)
-      .x((row) => x(row.date))
-      .y((row) => y(row.value));
-    const releaseLine = d3.line()
-      .defined((row) => Number.isFinite(row.value) && row.value <= 0)
+    // SR1 inflow and outflow as two separate lines rising from a zero baseline.
+    // Inflow is water diverted into the reservoir (actual Sarcee below the Bragg
+    // projection); outflow is stored water released back to the Elbow (actual
+    // Sarcee above it). Both are drawn as positive magnitudes so the outflow
+    // reads as its own line instead of a dip below the inflow line.
+    const inflowValues = diversionValues.map((row) => ({ date: row.date, value: Math.max(0, row.value) }));
+    const outflowValues = diversionValues.map((row) => ({ date: row.date, value: Math.max(0, -row.value) }));
+    const rateLine = d3.line()
+      .defined((row) => Number.isFinite(row.value))
       .x((row) => x(row.date))
       .y((row) => y(row.value));
 
     svg.append("path")
-      .datum(diversionSplit)
+      .datum(inflowValues)
       .attr("fill", "none")
       .attr("stroke", DIVERSION_COLOR)
       .attr("stroke-width", 2)
       .attr("opacity", 0.9)
-      .attr("d", diversionLine);
+      .attr("d", rateLine);
 
     svg.append("path")
-      .datum(diversionSplit)
+      .datum(outflowValues)
       .attr("fill", "none")
       .attr("stroke", RELEASE_COLOR)
       .attr("stroke-width", 2)
       .attr("opacity", 0.9)
-      .attr("d", releaseLine);
+      .attr("d", rateLine);
   }
 
   const focusLayer = svg.append("g");
@@ -989,12 +970,10 @@ function renderChart(metric) {
   if (diversionValues.length > 1) {
     legend.append("span")
       .attr("class", "legend-item")
-      .html(`<span class="legend-swatch" style="background:${DIVERSION_COLOR}"></span>Est. SR1 diversion (no-SR1 Sarcee − actual; floor, excl. growing tributary inflow)`);
-  }
-  if (diversionValues.some((row) => row.value < 0)) {
+      .html(`<span class="legend-swatch" style="background:${DIVERSION_COLOR}"></span>Est. SR1 inflow (Sarcee below the Bragg projection = water diverted into the reservoir)`);
     legend.append("span")
       .attr("class", "legend-item")
-      .html(`<span class="legend-swatch" style="background:${RELEASE_COLOR}"></span>Est. SR1 release (Sarcee above the Bragg projection = stored water returning to the Elbow)`);
+      .html(`<span class="legend-swatch" style="background:${RELEASE_COLOR}"></span>Est. SR1 outflow (Sarcee above the Bragg projection = stored water released back to the Elbow)`);
   }
 }
 
