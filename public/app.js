@@ -29,7 +29,6 @@ const SR1_FLOW_TRIGGER_M3S = 160;
 const GLENMORE_ACTIVE_FLOOD_STORAGE_DAM3 = 10_000;
 const GLENMORE_STALE_HOURS = 2;
 const colors = ["#0f7f8c", "#395f9d", "#7b8b2e", "#c17427", "#8f5542"];
-const SARCEE_COLOR = "#395f9d";
 const DIVERSION_COLOR = "#7a3aa0";
 const RELEASE_COLOR = "#2f8f57";
 let latestData = null;
@@ -306,10 +305,6 @@ function renderCards(metric) {
 // {date, value} shape the chart and map rendering already expect.
 function braggToSarceeLagHours() {
   return latestData.sr1.lagHours;
-}
-
-function sarceeProjectedSeries() {
-  return (latestData.sr1?.projectedSarcee || []).map((row) => ({ date: new Date(row.timestamp), value: row.value }));
 }
 
 // Server-computed SR1 rate series, already gated and non-negative. kind is
@@ -783,10 +778,9 @@ function renderChart(metric) {
   const readings = latestData.readings
     .filter((row) => row.parameter === parameter)
     .map((row) => ({ ...row, date: new Date(row.timestamp) }));
-  const projectedSarcee = metric === "flow" ? sarceeProjectedSeries() : [];
   const inflowValues = metric === "flow" ? sr1RateSeries("inflow") : [];
   const outflowValues = metric === "flow" ? sr1RateSeries("outflow") : [];
-  const chartReadings = readings.concat(projectedSarcee);
+  const chartReadings = readings;
 
   const series = latestData.stations.map((station, index) => ({
     station,
@@ -880,17 +874,6 @@ function renderChart(metric) {
       .attr("d", line);
   }
 
-  if (projectedSarcee.length > 1) {
-    svg.append("path")
-      .datum(projectedSarcee)
-      .attr("fill", "none")
-      .attr("stroke", SARCEE_COLOR)
-      .attr("stroke-width", 2)
-      .attr("stroke-dasharray", "7 5")
-      .attr("opacity", 0.85)
-      .attr("d", line);
-  }
-
   if (inflowValues.length > 1) {
     // SR1 inflow and outflow as two separate lines rising from a zero baseline.
     // Inflow is water diverted into the reservoir; outflow is stored water
@@ -962,11 +945,6 @@ function renderChart(metric) {
     legend.append("span")
       .attr("class", "legend-item")
       .html(`<span class="legend-swatch" style="background:${item.color}"></span>${displayStationShortName(item.station)}`);
-  }
-  if (projectedSarcee.length > 1) {
-    legend.append("span")
-      .attr("class", "legend-item")
-      .html(`<span class="legend-swatch" style="background:${SARCEE_COLOR}"></span>Sarcee projected from Bragg +${formatNumber(braggToSarceeLagHours(), 1)}h`);
   }
   if (inflowValues.length > 1) {
     legend.append("span")
