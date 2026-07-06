@@ -688,6 +688,12 @@ function buildMonitorPayload(days) {
       inflow: windowSeries(model.inflow, displayStartMs).map(toStamped),
       outflow: windowSeries(model.outflow, displayStartMs).map(toStamped),
       volumeSeries: windowSeries(model.volumeSeries, displayStartMs).map(toStamped),
+      rainWindows: model.rainWindows
+        .filter((window) => window.endMs >= displayStartMs)
+        .map((window) => ({
+          start: new Date(window.startMs).toISOString(),
+          end: new Date(window.endMs).toISOString()
+        })),
       forecast: model.forecast
         ? { at: new Date(model.forecast.atMs).toISOString(), value: model.forecast.value }
         : null,
